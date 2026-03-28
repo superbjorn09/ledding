@@ -47,6 +47,10 @@ compilecommands:
 	platformio run -e cable --target compiledb && \
 	mv .pio/build/cable/compile_commands.json .
 
+# run native unit tests
+test:
+	pio test -e native
+
 # start serial console for ESP32 output
 monitor:
 	pio device monitor -b 115200
