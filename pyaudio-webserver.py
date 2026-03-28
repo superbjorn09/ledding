@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Python 2.7 code to analyze sound and interface with Arduino
+# Python 3 code to analyze sound and interface with Arduino
 
 import pyaudio # from http://people.csail.mit.edu/hubert/pyaudio/
 import serial  # from http://pyserial.sourceforge.net/
@@ -134,13 +134,12 @@ def arduino_soundlight():
     # to make you sound output an input
     # Use list_devices() to list all your input devices
     device   = 0 # Original
-    MAX = 0
     num_leds = 148 #Thats how my LEDs we have
     double = True
     if double:
-        num_leds = num_leds / 2# + 4
+        num_leds = num_leds // 2
     else:
-        num_leds = num_leds# + 4
+        num_leds = num_leds
 
     p = pyaudio.PyAudio()
     stream = p.open(format = pyaudio.paInt16,
@@ -196,10 +195,9 @@ def arduino_soundlight():
 
 def calculate_levels(data, chunk, samplerate, num_leds):
     # Use FFT to calculate volume for each frequency
-    global MAX
 
     # Convert raw sound data to Numpy array
-    fmt = "%dH"%(len(data)/2)
+    fmt = "%dH"%(len(data)//2)
     data2 = struct.unpack(fmt, data)
     data2 = numpy.array(data2, dtype='h')
 
@@ -218,13 +216,13 @@ def calculate_levels(data, chunk, samplerate, num_leds):
     # b) it looks so much better this way
     fourier = list(ffty)
     music_spectrum = len(fourier)//4
-    fill_up = int(num_leds - len(fourier)/4)
+    fill_up = num_leds - len(fourier)//4
     fourier = fourier[:music_spectrum+fill_up]
 
     size = len(fourier)
 
     # Add up for num_leds lights
-    levels = [int(abs(sum(fourier[i:(i+int(size//num_leds))]))) for i in range(0, size, int(size//num_leds))]
+    levels = [int(abs(sum(fourier[i:(i+size//num_leds)]))) for i in range(0, size, size//num_leds)]
 
     return levels
 
