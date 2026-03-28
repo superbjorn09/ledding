@@ -3,11 +3,9 @@
   apt:
     name: "*"
     state: latest
-    force_apt_get: yes
 - name: Installing Basic Packages
   apt:
     pkg:
       - aptitude
       - git
       - vim
-    force_apt_get: yes

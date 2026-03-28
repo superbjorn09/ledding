@@ -1,5 +1,5 @@
-#!/usr/bin/python2
-# Python 2.7 code to analyze sound and interface with Arduino
+#!/usr/bin/python3
+# Python 3 code to analyze sound and interface with Arduino
 
 import pyaudio # from http://people.csail.mit.edu/hubert/pyaudio/
 import serial  # from http://pyserial.sourceforge.net/
@@ -29,11 +29,11 @@ def list_devices():
     while i < n:
         dev = p.get_device_info_by_index(i)
         if dev['maxInputChannels'] > 0:
-            print str(i)+'. '+dev['name']
+            print(str(i)+'. '+dev['name'])
         i += 1
 
 def arduino_soundlight():
-    print "Starting Arduino Soundlight"
+    print("Starting Arduino Soundlight")
     chunk      = 2**11 # Change if too fast/slow, never less than 2**11
     scale      = 26    # Change if too dim/bright
     exponent   = 2.5     # Change if too little/too much difference between loud and quiet sounds
@@ -48,9 +48,9 @@ def arduino_soundlight():
     double = True
     print("Using Device: %s" % device)
     if double:
-        num_leds = num_leds / 2# + 4
+        num_leds = num_leds // 2
     else:
-        num_leds = num_leds# + 4
+        num_leds = num_leds
 
     p = pyaudio.PyAudio()
     stream = p.open(format = pyaudio.paInt16,
@@ -60,7 +60,7 @@ def arduino_soundlight():
                     frames_per_buffer = chunk,
                     input_device_index = device)
 
-    print "Starting, use Ctrl+C to stop"
+    print("Starting, use Ctrl+C to stop")
     try:
         ser = serial.Serial(
             port='/dev/serial0',
@@ -77,11 +77,6 @@ def arduino_soundlight():
 
             levels = new
 
-            # peak = abs(int(sum(levels)-(num_leds*2)))**3.0
-            # peak = int(peak / 100000 / 2.5)
-            # if peak > ( num_leds * 2 ) or peak > 254:
-            #     peak = num_leds * 2
-
             # Make it look better and send to serial
             for index, level in enumerate(levels[2:]):
                 level = int(level**exponent)
@@ -90,16 +85,14 @@ def arduino_soundlight():
                     level = 254
                 elif level <= 60:
                     level = 0
-                ser.write(chr(level))
-            ser.write(chr(255))
-            #TODO: For peak levels
-            #ser.write(chr(int(peak)))
+                ser.write(bytes([level]))
+            ser.write(bytes([255]))
             s = ser.read()
 
     except KeyboardInterrupt:
         pass
     finally:
-        print "\nStopping"
+        print("\nStopping")
         stream.close()
         p.terminate()
         ser.close()
@@ -108,16 +101,16 @@ def calculate_levels(data, chunk, samplerate, num_leds):
     # Use FFT to calculate volume for each frequency
 
     # Convert raw sound data to Numpy array
-    fmt = "%dH"%(len(data)/2)
+    fmt = "%dH"%(len(data)//2)
     data2 = struct.unpack(fmt, data)
     data2 = numpy.array(data2, dtype='h')
 
     # Apply FFT
     fourier = numpy.fft.fft(data2)
 
-    ffty = numpy.abs(fourier[0:len(fourier)/2])/1000
-    ffty1=ffty[:len(ffty)/2]
-    ffty2=ffty[len(ffty)/2::]+2
+    ffty = numpy.abs(fourier[0:len(fourier)//2])/1000
+    ffty1=ffty[:len(ffty)//2]
+    ffty2=ffty[len(ffty)//2::]+2
     ffty2=ffty2[::-1]
     ffty=ffty1+ffty2
     ffty=numpy.log(ffty)-2
@@ -126,14 +119,14 @@ def calculate_levels(data, chunk, samplerate, num_leds):
     # a) not hearable
     # b) it looks so much better this way
     fourier = list(ffty)
-    music_spectrum = len(fourier)/4
-    fill_up = num_leds - len(fourier)/4
+    music_spectrum = len(fourier)//4
+    fill_up = num_leds - len(fourier)//4
     fourier = fourier[:music_spectrum+fill_up]
 
     size = len(fourier)
 
     # Add up for num_leds lights
-    levels = [int(abs(sum(fourier[i:(i+size/num_leds)]))) for i in xrange(0, size, size/num_leds)]
+    levels = [int(abs(sum(fourier[i:(i+size//num_leds)]))) for i in range(0, size, size//num_leds)]
 
     return levels
 

@@ -2,7 +2,7 @@
 - name: Set hostname to {{ hostname }}
   hostname:
     name: "{{ hostname }}"
- 
+
 - name: Unblock Wifi on rfkill Service
   shell: rfkill unblock wifi
 
@@ -10,39 +10,46 @@
   apt:
     pkg:
       - hostapd
-      - udhcpd
-      - iptables-persistent  # auto-loads iptables rules on boot
+      - iptables-persistent
       - dnsmasq
+
+- name: Mark {{ wifi_adapter }} as unmanaged in NetworkManager
+  template:
+    src: templates/nm-unmanaged-wlan.conf.j2
+    dest: /etc/NetworkManager/conf.d/99-unmanaged-wlan.conf
+
+- name: Configure static IP for {{ wifi_adapter }} via systemd-networkd
+  template:
+    src: templates/wlan-static.network.j2
+    dest: /etc/systemd/network/10-{{ wifi_adapter }}.network
+
+- name: Enable and start systemd-networkd
+  systemd:
+    name: systemd-networkd
+    state: restarted
+    enabled: yes
+
+- name: Configure static LAN IP via NetworkManager
+  template:
+    src: templates/lan-static.nmconnection.j2
+    dest: /etc/NetworkManager/system-connections/{{ lan_adapter }}.nmconnection
+    mode: '0600'
+  when: lan_static.enabled
 
 - name: Configure hostapd
   template:
     src: templates/hostapd.conf.j2
     dest: /etc/hostapd/hostapd.conf
 
-- name: Register hostapd configuration
+- name: Configure dnsmasq for access point DHCP
   template:
-    src: templates/hostapd-init.j2
-    dest: /etc/default/hostapd
-
-- name: Configure udhcpd
-  template:
-    src: templates/udhcpd.conf.j2
-    dest: /etc/udhcpd.conf
-
-- name: Configure network interfaces
-  template:
-    src: templates/interfaces.j2
-    dest: /etc/network/interfaces
-
-- name: Register udhcpd configuration
-  template:
-    src: templates/udhcpd-init.j2
-    dest: /etc/default/udhcpd
+    src: templates/dnsmasq-ap.conf.j2
+    dest: /etc/dnsmasq.d/access-point.conf
 
 - name: Enable IP forwarding
   sysctl:
     name: "net.ipv4.ip_forward"
-    value: 1
+    value: '1'
     sysctl_set: yes
     state: present
     reload: yes
@@ -50,7 +57,7 @@
 - name: Disable ipv6
   sysctl:
     name: "net.ipv6.conf.all.disable_ipv6"
-    value: 1
+    value: '1'
     sysctl_set: yes
     state: present
     reload: yes
@@ -94,11 +101,20 @@
     - iptables-restore < /etc/iptables/rules.v4
     - ip6tables-restore < /etc/iptables/rules.v6
 
-- name: Enable and (re-)start services
-  service:
-    name: "{{ item }}"
+- name: Restart NetworkManager
+  systemd:
+    name: NetworkManager
+    state: restarted
+
+- name: Restart dnsmasq
+  systemd:
+    name: dnsmasq
     state: restarted
     enabled: yes
-  with_items:
-    - udhcpd
-    - hostapd
+
+- name: Unmask and enable hostapd
+  systemd:
+    name: hostapd
+    masked: no
+    state: restarted
+    enabled: yes

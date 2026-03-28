@@ -7,27 +7,28 @@
 - name: Installing Basic Packages
   apt:
     pkg:
-      - python-pip
-      - python-pyaudio
-      - python-numpy
- 
+      - python3-pip
+      - python3-pyaudio
+      - python3-numpy
+      - python3-serial
+      - pipx
 
 - name: Installing platformio
-  pip:
-    name: platformio
+  shell: pipx install platformio
+  args:
+    creates: /root/.local/bin/platformio
 
 - name: Cloning Git Repository ledding
   git:
     repo: 'https://github.com/superbjorn09/ledding'
-    dest: /home/pi/ledding
+    dest: /home/{{ deploy_user }}/ledding
     force: yes
-
 
 - name: Setting up permissions
   file:
-    path: /home/pi/ledding
-    owner: pi
-    group: pi
+    path: /home/{{ deploy_user }}/ledding
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
     recurse: yes
 
 - name: Install Systemd Unit for AudioFFT

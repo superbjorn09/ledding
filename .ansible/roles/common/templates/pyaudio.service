@@ -5,7 +5,7 @@ After=network.service
 [Service]
 Restart=always
 RestartSec=30s
-ExecStart=/home/pi/ledding/pyaudio-testing.py
+ExecStart=/home/{{ deploy_user }}/ledding/pyaudio-testing.py
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+interface={{ wifi_adapter }}
+bind-interfaces
+dhcp-range={{ ip_range.start }},{{ ip_range.end }},{{ subnet }},{{ lease_time }}s
+dhcp-option=option:router,{{ own_ip }}
+dhcp-option=option:dns-server,{{ dns_servers | replace(' ', ',') }}
+domain=local

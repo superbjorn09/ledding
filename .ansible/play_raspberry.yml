@@ -1,8 +1,8 @@
 ---
 - name: raspberry
   hosts: raspberry
-  remote_user: root
+  become: yes
   roles:
-      - preinstall
-      - common
-      - access-point
+    - preinstall
+    - common
+    - access-point
