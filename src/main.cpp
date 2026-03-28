@@ -6,6 +6,7 @@
 
 /* include global instances of leds, animator, buttons, ota and effects */
 #include "globals.h"
+#include "serial_cmd.h"
 
 void setupMaite() {
 	animator.mode = Animator::ANIMATOR_CONSTANT;
@@ -85,6 +86,10 @@ void setup() {
 
 void loop() {
 	ota.handleOta();
+
+#ifdef CONF_PARTYRAUM
+	handleSerialCommands();
+#endif
 
 	EVERY_N_MILLISECONDS(REDRAW_RESOLUTION) {
 		animator.redraw();

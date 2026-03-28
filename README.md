@@ -245,8 +245,9 @@ A Raspberry Pi captures audio via microphone, performs FFT analysis and sends th
 
 ### How it works
 
-- `pyaudio.py` — Captures audio, computes FFT, sends per-LED brightness levels over serial. Runs as a systemd service (`pyaudio.service`).
-- `pyaudio-webserver.py` — Same FFT logic but additionally exposes a web interface on port 8000 to switch modes.
+`pyaudio.py` captures audio, computes FFT and sends per-LED brightness levels over serial. It also runs a web server on port 8000 to control the FFT processing and send commands to the ESP32 (mode, brightness, color, intensity). Runs as a systemd service (`pyaudio.service`).
+
+The serial protocol uses `0xFF` as frame delimiter for FFT data and `0xFE` as command prefix (defined in `include/serial_cmd.h`).
 
 Requirements: Python 3, pyaudio, numpy, pyserial.
 

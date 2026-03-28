@@ -207,12 +207,14 @@ void EffectSound::configure(CRGB color) {
 }
 
 bool EffectSound::calcNextFrame() {
-//	int peak = 0;
-//	uint16_t peak_counter = 0;
 	for (int i = 0; i < NUM_LEDS; i++) {
 		if (Serial2.available()) {
 			uint8_t value = Serial2.read();
-			if ( value == 255) {
+			if (value == 0xFE) {
+				/* command prefix — skip, handled by handleSerialCommands() */
+				continue;
+			}
+			if (value == 255) {
 				currentLED = 0;
 				/*  Keep this for Peak Output
 				peak = Serial2.read();
