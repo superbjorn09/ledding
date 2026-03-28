@@ -21,6 +21,9 @@ Fancy LED project
         * [Make the physical connection](#make-the-physical-connection)
         * [One time setup configuration](#one-time-setup-configuration)
         * [Start a debugging session](#start-a-debugging-session)
+* [Raspberry Pi Audio FFT](#raspberry-pi-audio-fft)
+    * [How it works](#how-it-works)
+    * [Raspberry Pi setup with Ansible](#raspberry-pi-setup-with-ansible)
 * [Specifics for Partyraum Installation](#specifics-for-partyraum-installation)
     * [I/O](#io)
 * [Specifics for Maite Installation](#specifics-for-maite-installation)
@@ -120,16 +123,12 @@ Available (should be fast enough):
 ## Software
 ### Installation
 This project uses platformio (https://platformio.org/) as its build system.
-To install platformio, download and execute the `get-plaformio.py` script
+Library dependencies are declared in `platformio.ini` and installed automatically on first build.
+
+To install platformio, download and execute the `get-platformio.py` script
 ```
 wget https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py -O get-platformio.py
 python3 get-platformio.py
-```
-
-Install dependencies with pio:
-
-```
-pio lib install "FastLED"
 ```
 
 To be able to upload, the user needs to be able to open the USB device, thus being in the `dialout` group
@@ -147,8 +146,7 @@ pio device monitor -b 115200
 
 Generate `compile_commands.json`:
 ```
-platformio run --target compiledb
-mv .pio/build/ota/compile_commands.json .
+make compilecommands
 ```
 
 ### Programming
@@ -241,6 +239,31 @@ To actually start a debugging session with GDB, use
 pio debug --interface gdb -x .pioinit
 ```
 
+## Raspberry Pi Audio FFT
+
+A Raspberry Pi captures audio via microphone, performs FFT analysis and sends the resulting frequency levels to the ESP32 over a serial connection (`/dev/serial0` at 115200 baud). The ESP32 uses this data to drive the LED strips in a music-reactive mode.
+
+### How it works
+
+- `pyaudio.py` — Captures audio, computes FFT, sends per-LED brightness levels over serial. Runs as a systemd service (`pyaudio.service`).
+- `pyaudio-webserver.py` — Same FFT logic but additionally exposes a web interface on port 8000 to switch modes.
+
+Requirements: Python 3, pyaudio, numpy, pyserial.
+
+### Raspberry Pi setup with Ansible
+
+An Ansible playbook in `.ansible/` automates the Raspberry Pi setup (installs dependencies, clones the repo, enables the pyaudio systemd service).
+
+1. Edit `.ansible/hosts` and set the Pi's IP address
+2. Adjust `.ansible/group_vars/all.yml` if needed (e.g. `deploy_user`)
+3. Run the playbook:
+```
+cd .ansible
+ansible-playbook -i hosts play_raspberry.yml
+```
+
+The playbook connects via SSH and uses `sudo` (`become: yes`). Make sure SSH access to the Pi is set up with key-based authentication.
+
 ## Specifics for Partyraum Installation
 LED stripes of
 - 2x 10 m
@@ -264,7 +287,7 @@ The Meanwell LRS-200-12 is a good fit.
 - Button 3: Color
 - Button 4: Intensity
 - LED 1: WiFi connected?
-- LED 2: Serial data from Raspberry Pi received last second
+- LED 2: Serial FFT data from Raspberry Pi received last second
 - LED 3: TODO
 - LED 4: TODO
 
@@ -322,4 +345,4 @@ U_1.2 = 0.175 * 3.375 A = 0.591 V
 1. Use ESP Log functions instead of serial directly for more finegrained logging
 
 ## Lessons learned
-1. When creating a new environment in `platformio.ini`, one needs to reinstall the dependency libraries
+1. When creating a new environment in `platformio.ini`, dependencies from `lib_deps` are installed automatically on the first build for that environment.
