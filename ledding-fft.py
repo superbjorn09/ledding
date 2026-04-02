@@ -33,6 +33,11 @@ BASS_EFFECT_WAVE  = 'wave'
 BASS_THRESHOLD = 80
 BASS_BINS = 20  # number of center bins to average for bass detection
 
+# Defaults for toggleable features (all off by default)
+DEFAULT_SMOOTHING = 0.0     # 0.0 = off, 0.7 = smooth
+DEFAULT_PEAK_DECAY = 0.0    # 0.0 = off, 0.95 = slow decay
+DEFAULT_FREQ_MAX = 6000     # Hz
+
 
 class BassEffectState:
     """Tracks the current state of a bass overlay effect."""
@@ -60,6 +65,12 @@ class AppState:
         self.bass_effect = BASS_EFFECT_OFF
         self.bass_state = BassEffectState()
         self.bass_threshold = BASS_THRESHOLD
+        self.smoothing = DEFAULT_SMOOTHING
+        self.peak_decay = DEFAULT_PEAK_DECAY
+        self.freq_max = DEFAULT_FREQ_MAX
+        self.prev_levels = None
+        self.peak_levels = None
+        self.freq_max_changed = False
 
 
 def list_devices():
@@ -264,17 +275,28 @@ def fft_thread(state):
         input_device_index=state.device,
     )
 
-    # Precompute log bins once (depends on chunk size, samplerate, num_leds)
+    # Precompute log bins (recomputed when freq_max changes)
     half_leds = state.num_leds // 2
     num_fft_bins = state.chunk // 2
+    current_freq_max = state.freq_max
     log_bins = build_log_bins(half_leds, num_fft_bins,
-                              freq_min=20, freq_max=6000,
+                              freq_min=20, freq_max=current_freq_max,
                               samplerate=state.samplerate)
 
     try:
         while True:
             # wait until FFT is enabled
             state.fft_running.wait()
+
+            # Recompute bins if freq_max changed
+            if state.freq_max_changed:
+                current_freq_max = state.freq_max
+                log_bins = build_log_bins(half_leds, num_fft_bins,
+                                          freq_min=20, freq_max=current_freq_max,
+                                          samplerate=state.samplerate)
+                state.freq_max_changed = False
+                state.prev_levels = None
+                state.peak_levels = None
 
             data = stream.read(state.chunk, exception_on_overflow=False)
 
@@ -299,6 +321,28 @@ def fft_thread(state):
                 elif level <= 60:
                     level = 0
                 output_levels.append(level)
+
+            # Frame smoothing: blend with previous frame
+            smoothing = state.smoothing
+            if smoothing > 0 and state.prev_levels is not None and len(state.prev_levels) == len(output_levels):
+                output_levels = [
+                    int(prev * smoothing + cur * (1.0 - smoothing))
+                    for prev, cur in zip(state.prev_levels, output_levels)
+                ]
+            state.prev_levels = list(output_levels)
+
+            # Peak hold: track and slowly decay peaks
+            peak_decay = state.peak_decay
+            if peak_decay > 0:
+                if state.peak_levels is None or len(state.peak_levels) != len(output_levels):
+                    state.peak_levels = list(output_levels)
+                else:
+                    for i in range(len(output_levels)):
+                        if output_levels[i] >= state.peak_levels[i]:
+                            state.peak_levels[i] = output_levels[i]
+                        else:
+                            state.peak_levels[i] = int(state.peak_levels[i] * peak_decay)
+                        output_levels[i] = max(output_levels[i], state.peak_levels[i])
 
             # Bass detection and effect overlay
             now = time.time()
@@ -389,6 +433,20 @@ HTML_PAGE = '''<!doctype html>
         <button onclick="document.getElementById('exponent').value=2.5;document.getElementById('exp-val').textContent='2.5';post('/fft/params',{exponent:2.5})">Reset</button>
     </div>
 
+    <h2>Rendering</h2>
+    <div class="btn-group">
+        <button id="btn-smooth" onclick="toggleSmooth()">Smoothing</button>
+        <button id="btn-peaks" onclick="togglePeaks()">Peak Hold</button>
+    </div>
+    <div class="slider-row">
+        <label>Freq Range:</label>
+        <input type="range" min="4000" max="16000" step="500" id="freq-max"
+               oninput="document.getElementById('freq-val').textContent=this.value + ' Hz'"
+               onchange="post('/fft/params', {freq_max: parseInt(this.value)})">
+        <span id="freq-val"></span>
+        <button onclick="document.getElementById('freq-max').value=6000;document.getElementById('freq-val').textContent='6000 Hz';post('/fft/params',{freq_max:6000})">Reset</button>
+    </div>
+
     <h2>Bass Effect</h2>
     <div class="btn-group" id="bass-buttons">
         <button id="bass-off" onclick="setBass('off')">Off</button>
@@ -443,6 +501,8 @@ HTML_PAGE = '''<!doctype html>
         let debugActive = false;
         let debugInterval = null;
         let currentBassEffect = 'off';
+        let smoothActive = false;
+        let peaksActive = false;
 
         function post(url, data) {
             fetch(url, {
@@ -472,6 +532,30 @@ HTML_PAGE = '''<!doctype html>
                     btn.classList.remove('effect-active');
                 }
             });
+        }
+
+        function toggleSmooth() {
+            smoothActive = !smoothActive;
+            const btn = document.getElementById('btn-smooth');
+            if (smoothActive) {
+                btn.classList.add('toggle-on');
+                post('/fft/params', {smoothing: 0.7});
+            } else {
+                btn.classList.remove('toggle-on');
+                post('/fft/params', {smoothing: 0.0});
+            }
+        }
+
+        function togglePeaks() {
+            peaksActive = !peaksActive;
+            const btn = document.getElementById('btn-peaks');
+            if (peaksActive) {
+                btn.classList.add('toggle-on');
+                post('/fft/params', {peak_decay: 0.95});
+            } else {
+                btn.classList.remove('toggle-on');
+                post('/fft/params', {peak_decay: 0.0});
+            }
         }
 
         function toggleDebug() {
@@ -530,8 +614,18 @@ HTML_PAGE = '''<!doctype html>
             document.getElementById('exp-val').textContent = s.exponent;
             document.getElementById('bass-threshold').value = s.bass_threshold;
             document.getElementById('thresh-val').textContent = s.bass_threshold;
+            document.getElementById('freq-max').value = s.freq_max;
+            document.getElementById('freq-val').textContent = s.freq_max + ' Hz';
             currentBassEffect = s.bass_effect;
             updateBassButtons();
+            if (s.smoothing > 0) {
+                smoothActive = true;
+                document.getElementById('btn-smooth').classList.add('toggle-on');
+            }
+            if (s.peak_decay > 0) {
+                peaksActive = true;
+                document.getElementById('btn-peaks').classList.add('toggle-on');
+            }
             if (s.debug_enabled) {
                 toggleDebug();
             }
@@ -571,6 +665,9 @@ def make_handler(state):
                     'debug_enabled': state.debug_enabled,
                     'bass_effect': state.bass_effect,
                     'bass_threshold': state.bass_threshold,
+                    'smoothing': state.smoothing,
+                    'peak_decay': state.peak_decay,
+                    'freq_max': state.freq_max,
                 })
             elif self.path == '/debug/levels':
                 self._json_response({
@@ -596,6 +693,13 @@ def make_handler(state):
                     state.exponent = float(body['exponent'])
                 if 'num_leds' in body:
                     state.num_leds = int(body['num_leds'])
+                if 'smoothing' in body:
+                    state.smoothing = float(body['smoothing'])
+                if 'peak_decay' in body:
+                    state.peak_decay = float(body['peak_decay'])
+                if 'freq_max' in body:
+                    state.freq_max = int(body['freq_max'])
+                    state.freq_max_changed = True
                 self._json_response({'status': 'params updated',
                                      'exponent': state.exponent})
 
