@@ -10,3 +10,5 @@ env-superbjorn
 env-matthis
 env-thias
 session.nvim
+*.img
+*.img.xz

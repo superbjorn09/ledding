@@ -23,7 +23,9 @@ Fancy LED project
         * [Start a debugging session](#start-a-debugging-session)
 * [Raspberry Pi Audio FFT](#raspberry-pi-audio-fft)
     * [How it works](#how-it-works)
-    * [Raspberry Pi setup with Ansible](#raspberry-pi-setup-with-ansible)
+    * [Raspberry Pi setup](#raspberry-pi-setup)
+        * [Step 1: Prepare the SD card](#step-1-prepare-the-sd-card)
+        * [Step 2: Deploy with Ansible](#step-2-deploy-with-ansible)
 * [Specifics for Partyraum Installation](#specifics-for-partyraum-installation)
     * [I/O](#io)
 * [Specifics for Maite Installation](#specifics-for-maite-installation)
@@ -251,19 +253,43 @@ The serial protocol uses `0xFF` as frame delimiter for FFT data and `0xFE` as co
 
 Requirements: Python 3, pyaudio, numpy, pyserial.
 
-### Raspberry Pi setup with Ansible
+### Raspberry Pi setup
 
-An Ansible playbook in `.ansible/` automates the Raspberry Pi setup (installs dependencies, clones the repo, enables the pyaudio systemd service).
+Setup is a two-step process: `prepare-sd.sh` prepares the SD card, then Ansible deploys the software.
 
-1. Edit `.ansible/hosts` and set the Pi's IP address
-2. Adjust `.ansible/group_vars/all.yml` if needed (e.g. `deploy_user`)
-3. Run the playbook:
+Supported: Raspberry Pi 3, 4, 5 with Raspberry Pi OS Lite (Trixie, arm64).
+
+#### Step 1: Prepare the SD card
+
+Insert an SD card into your laptop and run:
+```
+sudo bash prepare-sd.sh
+```
+
+The script will:
+1. Detect the SD card device and ask for confirmation
+2. Ask which Pi model (3, 4 or 5)
+3. Download Raspberry Pi OS Trixie Lite if not already cached (with SHA256 verification)
+4. Flash the image to the SD card
+5. Configure SSH, user account, SSH key, hostname, WiFi (optional) and UART
+
+Configuration via environment variables (all optional):
+Variable | Default | Description
+--- | --- | ---
+`LEDDING_USER` | `pi` | Deploy user on the Pi
+`LEDDING_HOSTNAME` | `partypi` | Pi hostname
+`LEDDING_SSH_KEY` | auto-detect `~/.ssh/id_ed25519.pub` | SSH public key for Ansible access
+
+#### Step 2: Deploy with Ansible
+
+After booting the Pi, find its IP and run the Ansible playbook:
 ```
 cd .ansible
-ansible-playbook -i hosts play_raspberry.yml
+vim hosts          # set the Pi's IP address
+make deploy
 ```
 
-The playbook connects via SSH and uses `sudo` (`become: yes`). Make sure SSH access to the Pi is set up with key-based authentication.
+The playbook installs dependencies (pyaudio, numpy, pyserial), clones this repo, and enables the `pyaudio.service` systemd unit. It connects via SSH and uses `sudo` (`become: yes`).
 
 ## Specifics for Partyraum Installation
 LED stripes of
