@@ -65,6 +65,17 @@
     regexp: '(\s+)wants = \[ monitor\.bluez\.seat-monitoring \]'
     replace: '\1# wants = [ monitor.bluez.seat-monitoring ]'
 
+- name: Deploying WirePlumber post-upgrade fix script
+  template:
+    src: templates/fix-wireplumber.sh
+    dest: /usr/local/bin/fix-wireplumber.sh
+    mode: "0755"
+
+- name: Deploying apt hook to reapply WirePlumber patch after upgrades
+  copy:
+    content: 'DPkg::Post-Invoke { "/usr/local/bin/fix-wireplumber.sh"; };'
+    dest: /etc/apt/apt.conf.d/99-wireplumber-fix
+
 - name: Deploying WirePlumber Bluetooth autoconnect config
   copy:
     src: templates/51-bluez-autoconnect.conf

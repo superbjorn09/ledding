@@ -379,6 +379,33 @@ ${MARKER_END}
 EOF
 info "HiFiBerry DAC+ ADC overlay enabled."
 
+# ----- 12. Harden filesystem for SD card longevity -----
+info "Hardening filesystem for SD card..."
+
+# Add noatime to reduce write cycles
+FSTAB="${ROOT_PART}/etc/fstab"
+if [ -f "$FSTAB" ] && ! grep -q "noatime" "$FSTAB"; then
+    sed -i 's/defaults/defaults,noatime/g' "$FSTAB"
+    # tmpfs for volatile directories
+    cat >> "$FSTAB" <<EOF
+
+# Reduce SD card writes
+tmpfs /tmp     tmpfs defaults,noatime,nosuid,nodev,size=64M 0 0
+tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,size=32M 0 0
+EOF
+    info "fstab: noatime + tmpfs configured."
+fi
+
+# Configure journald to keep logs in RAM only
+JOURNAL_DIR="${ROOT_PART}/etc/systemd/journald.conf.d"
+mkdir -p "$JOURNAL_DIR"
+cat > "${JOURNAL_DIR}/ledding.conf" <<EOF
+[Journal]
+Storage=volatile
+RuntimeMaxUse=32M
+EOF
+info "journald: volatile storage (RAM only, 32M max)."
+
 # ----- Done -----
 echo ""
 echo "============================================="

@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-"""Bluetooth agent that auto-accepts pairing and authorizes A2DP connections."""
+"""Bluetooth agent that auto-accepts pairing, authorizes A2DP connections,
+and auto-reconnects known devices."""
 
 import dbus
 import dbus.service
@@ -52,7 +53,6 @@ class AutoAcceptAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
         print("RequestConfirmation (%s, %06d) -> auto-confirmed" % (device, passkey))
-        # Auto-trust the device after confirming
         self._trust_device(device)
         return
 
@@ -92,6 +92,45 @@ def set_adapter_properties(bus):
     print("Adapter configured: powered, discoverable, pairable")
 
 
+def reconnect_known_devices(bus):
+    """Try to connect all trusted, paired devices."""
+    try:
+        managed = dbus.Interface(
+            bus.get_object(BUS_NAME, "/"),
+            "org.freedesktop.DBus.ObjectManager",
+        )
+        for path, interfaces in managed.GetManagedObjects().items():
+            if "org.bluez.Device1" not in interfaces:
+                continue
+            props = interfaces["org.bluez.Device1"]
+            if props.get("Trusted", False) and props.get("Paired", False):
+                if not props.get("Connected", False):
+                    alias = props.get("Alias", path)
+                    try:
+                        device = dbus.Interface(
+                            bus.get_object(BUS_NAME, path),
+                            "org.bluez.Device1",
+                        )
+                        print("Reconnecting: %s" % alias)
+                        device.Connect()
+                        print("  -> Connected: %s" % alias)
+                    except Exception as e:
+                        print("  -> Failed to connect %s: %s" % (alias, e))
+    except Exception as e:
+        print("reconnect_known_devices failed: %s" % e)
+
+
+def on_properties_changed(interface, changed, invalidated, path=None):
+    """React to adapter property changes — reconnect devices when adapter powers on."""
+    if interface == "org.bluez.Adapter1" and changed.get("Powered", False):
+        print("Adapter powered on, reconnecting known devices...")
+        try:
+            bus = dbus.SystemBus()
+            reconnect_known_devices(bus)
+        except Exception as e:
+            print("Reconnect on power-on failed: %s" % e)
+
+
 def main():
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
@@ -124,6 +163,17 @@ def main():
                 )
                 device.Set("org.bluez.Device1", "Trusted", True)
                 print("Auto-trusted paired device: %s" % props.get("Alias", path))
+
+    # Listen for adapter property changes (e.g. power-on after crash)
+    bus.add_signal_receiver(
+        on_properties_changed,
+        dbus_interface="org.freedesktop.DBus.Properties",
+        signal_name="PropertiesChanged",
+        path_keyword="path",
+    )
+
+    # Try to reconnect known devices at startup
+    reconnect_known_devices(bus)
 
     print("Waiting for Bluetooth connections...")
     GLib.MainLoop().run()

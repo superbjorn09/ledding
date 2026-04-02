@@ -71,6 +71,9 @@ class AppState:
         self.prev_levels = None
         self.peak_levels = None
         self.freq_max_changed = False
+        self.fft_thread = None
+        self.fft_error = None
+        self.fft_restart_count = 0
 
 
 def list_devices():
@@ -370,10 +373,27 @@ def fft_thread(state):
 
     except Exception as e:
         print("FFT thread error: %s" % e)
+        state.fft_error = str(e)
     finally:
         print("FFT thread stopping")
         stream.close()
         p.terminate()
+
+
+def fft_supervisor(state):
+    """Restart the FFT thread on crash, with exponential backoff."""
+    backoff = 5
+    while True:
+        state.fft_error = None
+        t = threading.Thread(target=fft_thread, args=(state,), daemon=True)
+        state.fft_thread = t
+        t.start()
+        t.join()
+        state.fft_restart_count += 1
+        state.fft_error = "FFT thread died, restarting in %ds" % backoff
+        print(state.fft_error)
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 60)
 
 
 HTML_PAGE = '''<!doctype html>
@@ -668,6 +688,32 @@ def make_handler(state):
                     'smoothing': state.smoothing,
                     'peak_decay': state.peak_decay,
                     'freq_max': state.freq_max,
+                    'fft_thread_alive': state.fft_thread is not None and state.fft_thread.is_alive(),
+                    'fft_error': state.fft_error,
+                    'fft_restart_count': state.fft_restart_count,
+                })
+            elif self.path == '/health':
+                import subprocess, os
+                fft_alive = state.fft_thread is not None and state.fft_thread.is_alive()
+                serial_ok = state.ser is not None
+                pw_ok = False
+                try:
+                    result = subprocess.run(
+                        ['pactl', 'info'],
+                        capture_output=True, timeout=3,
+                        env={**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'},
+                    )
+                    pw_ok = result.returncode == 0
+                except Exception:
+                    pass
+                self._json_response({
+                    'healthy': fft_alive,
+                    'fft_thread_alive': fft_alive,
+                    'fft_error': state.fft_error,
+                    'fft_restart_count': state.fft_restart_count,
+                    'fft_paused': not state.fft_running.is_set(),
+                    'serial_connected': serial_ok,
+                    'pipewire_ok': pw_ok,
                 })
             elif self.path == '/debug/levels':
                 self._json_response({
@@ -795,8 +841,8 @@ def main():
         print("WARNING: Serial port not available (%s), running without ESP32" % e)
         state.ser = None
 
-    t = threading.Thread(target=fft_thread, args=(state,), daemon=True)
-    t.start()
+    supervisor = threading.Thread(target=fft_supervisor, args=(state,), daemon=True)
+    supervisor.start()
 
     server = HTTPServer(('0.0.0.0', 8000), make_handler(state))
     print("Web server running on http://0.0.0.0:8000/")

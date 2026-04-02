@@ -1,11 +1,12 @@
 [Unit]
 Description=Ledding Audio FFT for ESP32
 After=network.target bluetooth.service
+Wants=network.target
 
 [Service]
 Restart=always
-RestartSec=30s
-ExecStartPre=/bin/sleep 5
+RestartSec=10s
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do [ -S /run/user/1000/pipewire-0 ] && exit 0; sleep 1; done; echo "PipeWire socket not found, starting anyway"; exit 0'
 ExecStart=/home/{{ deploy_user }}/ledding/ledding-fft.py
 User={{ deploy_user }}
 Environment=XDG_RUNTIME_DIR=/run/user/1000

@@ -40,10 +40,11 @@
     src: templates/pyaudio.service
     dest: /etc/systemd/system/
 
-- name: Restart Systemd Unit
+- name: Enable and restart Systemd Unit
   systemd:
     state: restarted
     name: pyaudio.service
+    enabled: yes
     daemon_reload: yes
 
 - name: Removing unused packages
