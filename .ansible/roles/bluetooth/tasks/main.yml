@@ -76,6 +76,28 @@
   args:
     creates: /var/lib/systemd/linger/{{ deploy_user }}
 
+- name: Creating user systemd directory
+  file:
+    path: /home/{{ deploy_user }}/.config/systemd/user
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+
+- name: Deploying volume init service
+  copy:
+    src: templates/set-volume.service
+    dest: /home/{{ deploy_user }}/.config/systemd/user/set-volume.service
+
+- name: Enabling volume init service
+  become_user: "{{ deploy_user }}"
+  systemd:
+    name: set-volume.service
+    scope: user
+    enabled: yes
+    daemon_reload: yes
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/1000"
+
 - name: Enabling PipeWire user services
   become_user: "{{ deploy_user }}"
   systemd:

@@ -1,0 +1,12 @@
+[Unit]
+Description=Set audio volume to 100%
+After=pipewire.service wireplumber.service
+Requires=pipewire.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/wpctl set-volume @DEFAULT_SINK@ 1.0
+
+[Install]
+WantedBy=default.target
