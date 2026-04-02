@@ -78,6 +78,20 @@ class AutoAcceptAgent(dbus.service.Object):
             print("  -> Failed to trust device: %s" % e)
 
 
+def set_adapter_properties(bus):
+    """Ensure the adapter is powered, discoverable and pairable."""
+    adapter = dbus.Interface(
+        bus.get_object(BUS_NAME, "/org/bluez/hci0"),
+        "org.freedesktop.DBus.Properties",
+    )
+    adapter.Set("org.bluez.Adapter1", "Powered", True)
+    adapter.Set("org.bluez.Adapter1", "Discoverable", True)
+    adapter.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
+    adapter.Set("org.bluez.Adapter1", "Pairable", True)
+    adapter.Set("org.bluez.Adapter1", "Alias", "Ledding Speaker")
+    print("Adapter configured: powered, discoverable, pairable")
+
+
 def main():
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
@@ -94,6 +108,8 @@ def main():
 
     manager.RequestDefaultAgent(AGENT_PATH)
     print("Default agent set")
+
+    set_adapter_properties(bus)
 
     print("Waiting for Bluetooth connections...")
     GLib.MainLoop().run()
