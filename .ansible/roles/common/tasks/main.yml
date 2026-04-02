@@ -1,5 +1,9 @@
 ---
-- name: Updating Packages
+- name: Updating Package Index
+  apt:
+    update_cache: yes
+
+- name: Upgrading Packages
   apt:
     name: "*"
     state: latest
