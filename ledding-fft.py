@@ -149,15 +149,10 @@ def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerat
     return bins
 
 
-def calculate_levels_channel(channel_data, samplerate, num_leds):
+def calculate_levels_channel(channel_data, log_bins):
     """Use FFT to calculate volume for each frequency band (log-scaled) for one channel."""
     fourier = numpy.fft.fft(channel_data)
     magnitudes = numpy.abs(fourier[0:len(fourier) // 2]) / 1000
-
-    num_fft_bins = len(magnitudes)
-    log_bins = build_log_bins(num_leds, num_fft_bins,
-                              freq_min=20, freq_max=6000,
-                              samplerate=samplerate)
 
     levels = []
     for start, end in log_bins:
@@ -269,6 +264,13 @@ def fft_thread(state):
         input_device_index=state.device,
     )
 
+    # Precompute log bins once (depends on chunk size, samplerate, num_leds)
+    half_leds = state.num_leds // 2
+    num_fft_bins = state.chunk // 2
+    log_bins = build_log_bins(half_leds, num_fft_bins,
+                              freq_min=20, freq_max=6000,
+                              samplerate=state.samplerate)
+
     try:
         while True:
             # wait until FFT is enabled
@@ -281,11 +283,8 @@ def fft_thread(state):
             left = stereo[0::2]
             right = stereo[1::2]
 
-            # Each channel gets half the LEDs
-            half_leds = state.num_leds // 2
-
-            levels_left = calculate_levels_channel(left, state.samplerate, half_leds)
-            levels_right = calculate_levels_channel(right, state.samplerate, half_leds)
+            levels_left = calculate_levels_channel(left, log_bins)
+            levels_right = calculate_levels_channel(right, log_bins)
 
             # Left channel: bass in center (reversed), Right channel: bass in center
             levels = list(reversed(levels_left)) + levels_right
@@ -322,9 +321,7 @@ def fft_thread(state):
 
             if state.ser is not None:
                 with state.serial_lock:
-                    for level in output_levels:
-                        state.ser.write(bytes([level]))
-                    state.ser.write(bytes([255]))
+                    state.ser.write(bytes(output_levels) + b'\xff')
                     state.ser.read()
 
     except Exception as e:
