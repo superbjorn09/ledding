@@ -3,6 +3,7 @@
   apt:
     pkg:
       - bluez
+      - bluez-tools
       - pipewire
       - pipewire-pulse
       - pipewire-audio
@@ -21,10 +22,28 @@
     dest: /etc/bluetooth/main.conf
   notify: Restart Bluetooth
 
+- name: Deploying Bluetooth PIN file
+  template:
+    src: templates/pin.conf
+    dest: /etc/bluetooth/pin.conf
+    mode: "0644"
+
+- name: Installing Python D-Bus dependencies
+  apt:
+    pkg:
+      - python3-dbus
+      - python3-gi
+
 - name: Deploying Bluetooth auto-accept agent
   template:
     src: templates/bt-auto-accept.sh
     dest: /usr/local/bin/bt-auto-accept.sh
+    mode: "0755"
+
+- name: Deploying Bluetooth pairing agent
+  template:
+    src: templates/ledding-bt-agent.py
+    dest: /usr/local/bin/ledding-bt-agent.py
     mode: "0755"
 
 - name: Deploying Bluetooth agent service

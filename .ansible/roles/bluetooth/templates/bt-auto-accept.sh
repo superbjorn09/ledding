@@ -1,20 +1,17 @@
 #!/bin/bash
-# Bluetooth auto-accept agent for Ledding.
+# Bluetooth setup for Ledding.
 # Unblocks rfkill, powers on the adapter, sets it discoverable
-# and runs an auto-accept agent for pairing requests.
+# and starts the auto-accept agent.
 
 # Ensure Bluetooth is not rfkill-blocked
 rfkill unblock bluetooth
 sleep 2
 
-bluetoothctl <<EOF
-power on
-system-alias "Ledding Speaker"
-discoverable on
-pairable on
-agent NoInputNoOutput
-default-agent
-EOF
+# Power on and configure
+bluetoothctl --timeout 3 power on
+bluetoothctl --timeout 3 system-alias "Ledding Speaker"
+bluetoothctl --timeout 3 discoverable on
+bluetoothctl --timeout 3 pairable on
 
-# Keep running so the agent stays active
-sleep infinity
+# Start Python agent that auto-accepts all pairing requests
+exec /usr/local/bin/ledding-bt-agent.py
