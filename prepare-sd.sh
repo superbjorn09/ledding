@@ -322,25 +322,26 @@ EOF
         info "NetworkManager config fixed (keyfile only)."
     fi
 
-    # Unblock WiFi via rfkill AND enable NetworkManager wifi radio before NM starts.
-    # Trixie ships with WiFi soft-blocked and NM radio disabled by default.
+    # Unblock WiFi and Bluetooth via rfkill, enable NM wifi radio before NM starts.
+    # Trixie ships with both soft-blocked and NM radio disabled by default.
     mkdir -p "${ROOT_PART}/etc/systemd/system/multi-user.target.wants"
-    cat > "${ROOT_PART}/etc/systemd/system/ledding-wifi-unblock.service" <<EOF
+    cat > "${ROOT_PART}/etc/systemd/system/ledding-rfkill-unblock.service" <<EOF
 [Unit]
-Description=Unblock WiFi for Ledding
-Before=NetworkManager.service
+Description=Unblock WiFi and Bluetooth for Ledding
+Before=NetworkManager.service bluetooth.service
 After=systemd-rfkill.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/sbin/rfkill unblock wifi
+ExecStart=/usr/sbin/rfkill unblock bluetooth
 ExecStart=/usr/bin/nmcli radio wifi on
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    ln -sf /etc/systemd/system/ledding-wifi-unblock.service \
-        "${ROOT_PART}/etc/systemd/system/multi-user.target.wants/ledding-wifi-unblock.service"
+    ln -sf /etc/systemd/system/ledding-rfkill-unblock.service \
+        "${ROOT_PART}/etc/systemd/system/multi-user.target.wants/ledding-rfkill-unblock.service"
 
     # Pre-set NetworkManager state so wifi radio is enabled on first boot
     mkdir -p "${ROOT_PART}/var/lib/NetworkManager"
