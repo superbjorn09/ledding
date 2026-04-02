@@ -243,15 +243,26 @@ pio debug --interface gdb -x .pioinit
 
 ## Raspberry Pi Audio FFT
 
-A Raspberry Pi captures audio via microphone, performs FFT analysis and sends the resulting frequency levels to the ESP32 over a serial connection (`/dev/serial0` at 115200 baud). The ESP32 uses this data to drive the LED strips in a music-reactive mode.
+A phone streams music via Bluetooth (A2DP) to the Raspberry Pi. The Pi plays the audio through a speaker (HiFiBerry DAC+ ADC or 3.5mm jack) and simultaneously performs FFT analysis, sending the resulting frequency levels to the ESP32 over USB serial. The ESP32 uses this data to drive the LED strips in a music-reactive mode.
 
 ### How it works
 
-`pyaudio.py` captures audio, computes FFT and sends per-LED brightness levels over serial. It also runs a web server on port 8000 to control the FFT processing and send commands to the ESP32 (mode, brightness, color, intensity). Runs as a systemd service (`pyaudio.service`).
+```
+Phone --[Bluetooth A2DP]--> PipeWire --> Audio Output (HiFiBerry / 3.5mm)
+                                    \--> Monitor Source --> pyaudio.py --> FFT --> USB-Serial --> ESP32
+```
+
+`pyaudio.py` reads from PipeWire's monitor source (via PulseAudio compat layer), computes FFT and sends per-LED brightness levels over USB serial to the ESP32. It also runs a web server on port 8000 to control the FFT processing and send commands to the ESP32 (mode, brightness, color, intensity). Runs as a systemd service (`pyaudio.service`).
 
 The serial protocol uses `0xFF` as frame delimiter for FFT data and `0xFE` as command prefix (defined in `include/serial_cmd.h`).
 
-Requirements: Python 3, pyaudio, numpy, pyserial.
+### Hardware connections
+
+- **ESP32**: Connected via USB cable (Micro-USB on ESP32 to USB-A on Pi), appears as `/dev/ttyUSB0`
+- **Audio output**: HiFiBerry DAC+ ADC (I2S, GPIO 18-21) or onboard 3.5mm jack as fallback
+- **Bluetooth**: Onboard (Pi 3/4/5), phone connects as A2DP source
+
+Requirements: Python 3, pyaudio, numpy, pyserial, PipeWire, BlueZ.
 
 ### Raspberry Pi setup
 
@@ -271,7 +282,7 @@ The script will:
 2. Ask which Pi model (3, 4 or 5)
 3. Download Raspberry Pi OS Trixie Lite if not already cached (with SHA256 verification)
 4. Flash the image to the SD card
-5. Configure SSH, user account, SSH key, hostname, WiFi (optional) and UART
+5. Configure SSH, user account, SSH key, hostname, WiFi (optional) and HiFiBerry audio overlay
 
 Configuration via environment variables (all optional):
 Variable | Default | Description
@@ -289,7 +300,7 @@ vim hosts          # set the Pi's IP address
 make deploy
 ```
 
-The playbook installs dependencies (pyaudio, numpy, pyserial), clones this repo, and enables the `pyaudio.service` systemd unit. It connects via SSH and uses `sudo` (`become: yes`).
+The playbook installs dependencies (pyaudio, numpy, pyserial, PipeWire, BlueZ), configures Bluetooth A2DP auto-accept, clones this repo, and enables the `pyaudio.service` systemd unit. It connects via SSH and uses `sudo` (`become: yes`).
 
 ## Specifics for Partyraum Installation
 LED stripes of

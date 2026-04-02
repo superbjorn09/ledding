@@ -1,0 +1,13 @@
+[Unit]
+Description=Bluetooth auto-accept agent for Ledding
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bt-auto-accept.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

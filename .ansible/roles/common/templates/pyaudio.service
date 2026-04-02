@@ -1,11 +1,14 @@
 [Unit]
-Description=FFT for ESP32
-After=network.service
+Description=Ledding Audio FFT for ESP32
+After=network.target bluetooth.service
 
 [Service]
 Restart=always
 RestartSec=30s
+ExecStartPre=/bin/sleep 5
 ExecStart=/home/{{ deploy_user }}/ledding/pyaudio.py
+User={{ deploy_user }}
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 [Install]
 WantedBy=multi-user.target

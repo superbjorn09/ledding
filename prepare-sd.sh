@@ -354,59 +354,29 @@ EOF
     info "WiFi configured (NetworkManager + rfkill unblock + radio enabled)."
 fi
 
-# ----- 11. Configure UART for ESP32 serial communication -----
-info "Configuring UART for Pi ${PI_MODEL}..."
+# ----- 11. Configure HiFiBerry DAC+ ADC overlay -----
+# ESP32 is connected via USB (not GPIO UART), so no UART overlay needed.
+# HiFiBerry uses I2S on GPIO 18-21, no conflict with other peripherals.
+# Onboard audio (3.5mm jack) remains as fallback when HiFiBerry is not attached.
+info "Configuring audio (HiFiBerry DAC+ ADC)..."
 
 CONFIG_TXT="${BOOT_PART}/config.txt"
 
-# Remove serial console from kernel command line
-CMDLINE="${BOOT_PART}/cmdline.txt"
-if grep -q "console=serial0" "$CMDLINE"; then
-    info "Removing serial console from cmdline.txt..."
-    sed -i 's/ *console=serial0,[0-9]*//g' "$CMDLINE"
-fi
-
-# Disable serial-getty so it doesn't claim the UART after boot
-GETTY_LINK="${ROOT_PART}/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service"
-if [ -L "$GETTY_LINK" ] || [ -e "$GETTY_LINK" ]; then
-    rm -f "$GETTY_LINK"
-    info "Disabled serial-getty@ttyS0."
-fi
-ln -sf /dev/null "${ROOT_PART}/etc/systemd/system/serial-getty@ttyS0.service" 2>/dev/null || true
-
-# Write model-specific UART config
-MARKER_START="# --- Ledding UART config ---"
+MARKER_START="# --- Ledding config ---"
 MARKER_END="# --- end Ledding ---"
 
 if grep -q "$MARKER_START" "$CONFIG_TXT" 2>/dev/null; then
     sed -i "/$MARKER_START/,/$MARKER_END/d" "$CONFIG_TXT"
 fi
 
-case "$PI_MODEL" in
-    3|4)
-        cat >> "$CONFIG_TXT" <<EOF
+cat >> "$CONFIG_TXT" <<EOF
 
 ${MARKER_START}
-# Use PL011 UART on GPIO 14/15 (more reliable than mini UART).
-# Moves Bluetooth to mini UART instead.
-enable_uart=1
-dtoverlay=miniuart-bt
+# HiFiBerry DAC+ ADC for audio output (falls back to onboard 3.5mm jack)
+dtoverlay=hifiberry-dacplusadc
 ${MARKER_END}
 EOF
-        info "PL011 UART enabled on GPIO 14/15 (Bluetooth moved to mini UART)."
-        ;;
-    5)
-        cat >> "$CONFIG_TXT" <<EOF
-
-${MARKER_START}
-# Enable UART0 on GPIO 14/15 for ESP32 serial communication.
-[pi5]
-dtparam=uart0=on
-${MARKER_END}
-EOF
-        info "UART0 enabled on GPIO 14/15."
-        ;;
-esac
+info "HiFiBerry DAC+ ADC overlay enabled."
 
 # ----- Done -----
 echo ""

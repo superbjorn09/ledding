@@ -48,6 +48,35 @@ def list_devices():
     p.terminate()
 
 
+def find_monitor_source():
+    """Find the monitor source index for the default audio sink.
+
+    PipeWire (via PulseAudio compat) exposes a .monitor source for each
+    sink. Reading from it gives us the audio being played out, which is
+    exactly what we need for FFT analysis of Bluetooth audio.
+    """
+    p = pyaudio.PyAudio()
+    monitor_index = None
+    for i in range(p.get_device_count()):
+        dev = p.get_device_info_by_index(i)
+        if '.monitor' in dev['name'].lower() and dev['maxInputChannels'] > 0:
+            monitor_index = i
+            print('Monitor source found: %d. %s' % (i, dev['name']))
+            break
+    p.terminate()
+    return monitor_index
+
+
+def find_serial_port():
+    """Find the ESP32 serial port. Tries /dev/ttyUSB* first, then /dev/serial0."""
+    import glob
+    for pattern in ['/dev/ttyUSB*', '/dev/serial0']:
+        ports = sorted(glob.glob(pattern))
+        if ports:
+            return ports[0]
+    return '/dev/ttyUSB0'
+
+
 def calculate_levels(data, chunk, samplerate, num_leds):
     """Use FFT to calculate volume for each frequency band."""
     fmt = "%dH" % (len(data) // 2)
@@ -322,8 +351,17 @@ def main():
     list_devices()
 
     state = AppState()
+
+    monitor = find_monitor_source()
+    if monitor is not None:
+        state.device = monitor
+    else:
+        print("WARNING: No monitor source found, falling back to device 0")
+
+    serial_port = find_serial_port()
+    print("Using serial port: %s" % serial_port)
     state.ser = serial.Serial(
-        port='/dev/serial0',
+        port=serial_port,
         baudrate=115200,
         timeout=5,
     )

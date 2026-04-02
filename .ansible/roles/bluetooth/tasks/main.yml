@@ -1,0 +1,72 @@
+---
+- name: Installing Bluetooth and PipeWire packages
+  apt:
+    pkg:
+      - bluez
+      - pipewire
+      - pipewire-pulse
+      - pipewire-audio
+      - wireplumber
+      - libspa-0.2-bluetooth
+
+- name: Enabling Bluetooth service
+  systemd:
+    name: bluetooth.service
+    enabled: yes
+    state: started
+
+- name: Deploying BlueZ configuration
+  template:
+    src: templates/main.conf
+    dest: /etc/bluetooth/main.conf
+  notify: Restart Bluetooth
+
+- name: Deploying Bluetooth auto-accept agent
+  template:
+    src: templates/bt-auto-accept.sh
+    dest: /usr/local/bin/bt-auto-accept.sh
+    mode: "0755"
+
+- name: Deploying Bluetooth agent service
+  template:
+    src: templates/bt-agent.service
+    dest: /etc/systemd/system/bt-agent.service
+  notify: Restart Bluetooth agent
+
+- name: Enabling Bluetooth agent service
+  systemd:
+    name: bt-agent.service
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Enabling user lingering for PipeWire
+  command: loginctl enable-linger {{ deploy_user }}
+  args:
+    creates: /var/lib/systemd/linger/{{ deploy_user }}
+
+- name: Enabling PipeWire user services
+  become_user: "{{ deploy_user }}"
+  systemd:
+    name: "{{ item }}"
+    scope: user
+    enabled: yes
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/1000"
+  loop:
+    - pipewire.service
+    - pipewire-pulse.service
+    - wireplumber.service
+
+handlers:
+  - name: Restart Bluetooth
+    systemd:
+      name: bluetooth.service
+      state: restarted
+
+  - name: Restart Bluetooth agent
+    systemd:
+      name: bt-agent.service
+      state: restarted
+      daemon_reload: yes
