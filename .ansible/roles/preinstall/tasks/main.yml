@@ -12,5 +12,6 @@
   apt:
     pkg:
       - aptitude
+      - btop
       - git
       - vim
