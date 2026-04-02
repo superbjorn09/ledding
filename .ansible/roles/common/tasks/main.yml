@@ -6,12 +6,6 @@
       - python3-pyaudio
       - python3-numpy
       - python3-serial
-      - pipx
-
-- name: Installing platformio
-  shell: pipx install platformio
-  args:
-    creates: /root/.local/bin/platformio
 
 - name: Cloning Git Repository ledding
   git:

@@ -22,12 +22,6 @@
     dest: /etc/bluetooth/main.conf
   notify: Restart Bluetooth
 
-- name: Deploying Bluetooth PIN file
-  template:
-    src: templates/pin.conf
-    dest: /etc/bluetooth/pin.conf
-    mode: "0644"
-
 - name: Installing Python D-Bus dependencies
   apt:
     pkg:
