@@ -405,6 +405,7 @@ HTML_PAGE = '''<!doctype html>
                oninput="document.getElementById('thresh-val').textContent=this.value"
                onchange="post('/bass/params', {threshold: parseInt(this.value)})">
         <span id="thresh-val"></span>
+        <button onclick="document.getElementById('bass-threshold').value=80;document.getElementById('thresh-val').textContent='80';post('/bass/params',{threshold:80})">Reset</button>
     </div>
 
     <h2>LED Debug</h2>
