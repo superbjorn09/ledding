@@ -145,16 +145,17 @@ def fft_thread(state):
 
             exponent = state.exponent
 
-            with state.serial_lock:
-                for level in levels[2:]:
-                    level = int(level ** exponent)
-                    if level >= 254:
-                        level = 253  # 0xFE is reserved for command prefix
-                    elif level <= 60:
-                        level = 0
-                    state.ser.write(bytes([level]))
-                state.ser.write(bytes([255]))
-                state.ser.read()
+            if state.ser is not None:
+                with state.serial_lock:
+                    for level in levels[2:]:
+                        level = int(level ** exponent)
+                        if level >= 254:
+                            level = 253  # 0xFE is reserved for command prefix
+                        elif level <= 60:
+                            level = 0
+                        state.ser.write(bytes([level]))
+                    state.ser.write(bytes([255]))
+                    state.ser.read()
 
     except Exception as e:
         print("FFT thread error: %s" % e)
@@ -359,12 +360,16 @@ def main():
         print("WARNING: No monitor source found, falling back to device 0")
 
     serial_port = find_serial_port()
-    print("Using serial port: %s" % serial_port)
-    state.ser = serial.Serial(
-        port=serial_port,
-        baudrate=115200,
-        timeout=5,
-    )
+    try:
+        state.ser = serial.Serial(
+            port=serial_port,
+            baudrate=115200,
+            timeout=5,
+        )
+        print("Using serial port: %s" % serial_port)
+    except serial.SerialException as e:
+        print("WARNING: Serial port not available (%s), running without ESP32" % e)
+        state.ser = None
 
     t = threading.Thread(target=fft_thread, args=(state,), daemon=True)
     t.start()
