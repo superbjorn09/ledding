@@ -59,10 +59,16 @@
     state: started
     daemon_reload: yes
 
-- name: Deploying WirePlumber headless Bluetooth config
+- name: Removing seat-monitoring dependency from WirePlumber Bluetooth monitor
+  replace:
+    path: /usr/share/wireplumber/wireplumber.conf
+    regexp: '(\s+)wants = \[ monitor\.bluez\.seat-monitoring \]'
+    replace: '\1# wants = [ monitor.bluez.seat-monitoring ]'
+
+- name: Deploying WirePlumber Bluetooth autoconnect config
   copy:
-    src: templates/50-bluez-headless.conf
-    dest: /etc/wireplumber/wireplumber.conf.d/50-bluez-headless.conf
+    src: templates/51-bluez-autoconnect.conf
+    dest: /etc/wireplumber/wireplumber.conf.d/51-bluez-autoconnect.conf
   notify: Restart WirePlumber
 
 - name: Enabling user lingering for PipeWire
