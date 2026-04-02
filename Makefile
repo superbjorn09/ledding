@@ -1,4 +1,4 @@
-.PHONY: all build upload clean program uploadfs update
+.PHONY: all build upload clean program uploadfs update deploy
 
 all: build
 
@@ -46,6 +46,10 @@ updateLibs:
 compilecommands:
 	platformio run -e cable --target compiledb && \
 	mv .pio/build/cable/compile_commands.json .
+
+# deploy to Raspberry Pi via Ansible
+deploy:
+	$(MAKE) -C .ansible deploy
 
 # run native unit tests
 test:
