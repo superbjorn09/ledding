@@ -45,3 +45,8 @@
     state: restarted
     name: pyaudio.service
     daemon_reload: yes
+
+- name: Removing unused packages
+  apt:
+    autoremove: yes
+    purge: yes
