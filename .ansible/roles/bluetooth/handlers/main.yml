@@ -9,3 +9,12 @@
     name: bt-agent.service
     state: restarted
     daemon_reload: yes
+
+- name: Restart WirePlumber
+  become_user: "{{ deploy_user }}"
+  systemd:
+    name: wireplumber.service
+    scope: user
+    state: restarted
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/1000"

@@ -59,6 +59,12 @@
     state: started
     daemon_reload: yes
 
+- name: Deploying WirePlumber headless Bluetooth config
+  copy:
+    src: templates/50-bluez-headless.conf
+    dest: /etc/wireplumber/wireplumber.conf.d/50-bluez-headless.conf
+  notify: Restart WirePlumber
+
 - name: Enabling user lingering for PipeWire
   command: loginctl enable-linger {{ deploy_user }}
   args:

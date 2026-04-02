@@ -111,6 +111,20 @@ def main():
 
     set_adapter_properties(bus)
 
+    # Auto-trust all paired devices
+    adapter_obj = bus.get_object(BUS_NAME, "/")
+    managed = dbus.Interface(adapter_obj, "org.freedesktop.DBus.ObjectManager")
+    for path, interfaces in managed.GetManagedObjects().items():
+        if "org.bluez.Device1" in interfaces:
+            props = interfaces["org.bluez.Device1"]
+            if props.get("Paired", False) and not props.get("Trusted", False):
+                device = dbus.Interface(
+                    bus.get_object(BUS_NAME, path),
+                    "org.freedesktop.DBus.Properties",
+                )
+                device.Set("org.bluez.Device1", "Trusted", True)
+                print("Auto-trusted paired device: %s" % props.get("Alias", path))
+
     print("Waiting for Bluetooth connections...")
     GLib.MainLoop().run()
 
