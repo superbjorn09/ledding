@@ -1,0 +1,11 @@
+---
+- name: Restart Bluetooth
+  systemd:
+    name: bluetooth.service
+    state: restarted
+
+- name: Restart Bluetooth agent
+  systemd:
+    name: bt-agent.service
+    state: restarted
+    daemon_reload: yes
