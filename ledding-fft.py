@@ -13,6 +13,7 @@ import time
 import math
 import sys
 import os
+import subprocess
 from http.server import BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn, TCPServer
 
@@ -81,7 +82,8 @@ class AppState:
         self.freq_max = DEFAULT_FREQ_MAX
         self.prev_levels = None
         self.peak_levels = None
-        self.freq_max_changed = False
+        self._pipewire_ok = False
+        self._pipewire_check_time = 0
         self.frame_thread = None
         self.fft_error = None
         self.fft_restart_count = 0
@@ -107,8 +109,6 @@ def find_monitor_source():
     returns the PyAudio device index for the 'default' device. This way
     PyAudio reads whatever audio is being played out (Bluetooth stream).
     """
-    import subprocess, os
-
     env = {**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'}
 
     # Find the first .monitor source and set it as default
@@ -179,8 +179,8 @@ def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerat
 
 def calculate_levels_channel(channel_data, log_bins):
     """Use FFT to calculate volume for each frequency band (log-scaled) for one channel."""
-    fourier = numpy.fft.fft(channel_data)
-    magnitudes = numpy.abs(fourier[0:len(fourier) // 2]) / 1000
+    fourier = numpy.fft.rfft(channel_data)
+    magnitudes = numpy.abs(fourier) / 1000
 
     levels = []
     for start, end in log_bins:
@@ -310,12 +310,11 @@ def frame_thread(state):
                 # --- FFT audio processing path ---
                 state.fft_running.wait()
 
-                if state.freq_max_changed:
+                if state.freq_max != current_freq_max:
                     current_freq_max = state.freq_max
                     log_bins = build_log_bins(half_leds, num_fft_bins,
                                               freq_min=20, freq_max=current_freq_max,
                                               samplerate=state.samplerate)
-                    state.freq_max_changed = False
                     state.prev_levels = None
                     state.peak_levels = None
 
@@ -471,19 +470,20 @@ def make_handler(state):
                     'serial_connected': state.ser is not None,
                 })
             elif self.path == '/health':
-                import subprocess, os
                 fft_alive = state.frame_thread is not None and state.frame_thread.is_alive()
                 serial_ok = state.ser is not None
-                pw_ok = False
-                try:
-                    result = subprocess.run(
-                        ['pactl', 'info'],
-                        capture_output=True, timeout=3,
-                        env={**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'},
-                    )
-                    pw_ok = result.returncode == 0
-                except Exception:
-                    pass
+                now = time.time()
+                if now - state._pipewire_check_time > 10:
+                    try:
+                        result = subprocess.run(
+                            ['pactl', 'info'],
+                            capture_output=True, timeout=3,
+                            env={**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'},
+                        )
+                        state._pipewire_ok = result.returncode == 0
+                    except Exception:
+                        state._pipewire_ok = False
+                    state._pipewire_check_time = now
                 self._json_response({
                     'healthy': fft_alive,
                     'fft_thread_alive': fft_alive,
@@ -491,7 +491,7 @@ def make_handler(state):
                     'fft_restart_count': state.fft_restart_count,
                     'fft_paused': not state.fft_running.is_set(),
                     'serial_connected': serial_ok,
-                    'pipewire_ok': pw_ok,
+                    'pipewire_ok': state._pipewire_ok,
                 })
             elif self.path == '/debug/levels':
                 hue = 0
@@ -542,7 +542,6 @@ def make_handler(state):
                     state.peak_decay = float(body['peak_decay'])
                 if 'freq_max' in body:
                     state.freq_max = int(body['freq_max'])
-                    state.freq_max_changed = True
                 self._json_response({'status': 'params updated',
                                      'exponent': state.exponent})
 
@@ -551,8 +550,7 @@ def make_handler(state):
                 if body is None:
                     return
                 effect = body.get('effect', 'off')
-                if effect in (BASS_EFFECT_OFF, BASS_EFFECT_FLASH,
-                              BASS_EFFECT_PULSE, BASS_EFFECT_WAVE):
+                if effect == BASS_EFFECT_OFF or effect in BASS_EFFECTS:
                     state.bass_effect = effect
                     self._json_response({'status': 'bass effect: %s' % effect})
                 else:
@@ -613,10 +611,14 @@ def make_handler(state):
                     self._json_response({'status': 'unknown effect'}, 400)
                     return
                 for key, val in body.items():
-                    if key == 'mode':
+                    if key == 'mode' or key.startswith('_'):
                         continue
                     if hasattr(effect, key):
-                        setattr(effect, key, type(getattr(effect, key))(val))
+                        cur = getattr(effect, key)
+                        if isinstance(cur, bool):
+                            setattr(effect, key, val if isinstance(val, bool) else str(val).lower() not in ('false', '0', ''))
+                        else:
+                            setattr(effect, key, type(cur)(val))
                 self._json_response({'status': 'effect params updated'})
 
             else:
