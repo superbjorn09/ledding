@@ -165,8 +165,7 @@ def find_serial_port():
 def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerate=48000):
     """Build logarithmically spaced bin boundaries for FFT-to-LED mapping.
 
-    Returns a list of (start, end) index pairs into the FFT array,
-    one per LED. Low frequencies (bass) get more LEDs, high frequencies fewer.
+    Returns (starts, ends, counts) numpy arrays for vectorized bin averaging.
     """
     fft_freq_max = samplerate / 2
     bin_hz = fft_freq_max / num_fft_bins
@@ -174,7 +173,8 @@ def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerat
     log_min = math.log10(freq_min)
     log_max = math.log10(freq_max)
 
-    bins = []
+    starts = numpy.empty(num_bins, dtype=numpy.intp)
+    ends = numpy.empty(num_bins, dtype=numpy.intp)
     for i in range(num_bins):
         f_start = 10 ** (log_min + (log_max - log_min) * i / num_bins)
         f_end = 10 ** (log_min + (log_max - log_min) * (i + 1) / num_bins)
@@ -182,22 +182,24 @@ def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerat
         idx_end = max(int(f_end / bin_hz), idx_start + 1)
         if idx_end > num_fft_bins:
             idx_end = num_fft_bins
-        bins.append((idx_start, idx_end))
-    return bins
+        starts[i] = idx_start
+        ends[i] = idx_end
+    counts = numpy.maximum(ends - starts, 1).astype(numpy.float64)
+    return starts, ends, counts
 
 
 def calculate_levels_channel(channel_data, log_bins):
     """Use FFT to calculate volume for each frequency band (log-scaled) for one channel."""
+    starts, ends, counts = log_bins
     fourier = numpy.fft.rfft(channel_data)
     magnitudes = numpy.abs(fourier) / 1000
 
-    levels = []
-    for start, end in log_bins:
-        level = numpy.mean(magnitudes[start:end]) if end > start else 0
-        level = numpy.log1p(level)
-        levels.append(int(abs(level)))
+    cumsum = numpy.empty(len(magnitudes) + 1)
+    cumsum[0] = 0
+    numpy.cumsum(magnitudes, out=cumsum[1:])
 
-    return levels
+    bin_means = (cumsum[ends] - cumsum[starts]) / counts
+    return numpy.log1p(bin_means).astype(int)
 
 
 def detect_bass(output_levels, num_leds, threshold):
@@ -317,7 +319,7 @@ def frame_thread(state):
             # Periodically re-detect monitor source (picks up Bluetooth
             # connections that happen after the service starts)
             now_mono = time.monotonic()
-            if now_mono - last_source_check > 10:
+            if now_mono - last_source_check > 30:
                 last_source_check = now_mono
                 _update_monitor_source()
 
@@ -344,11 +346,11 @@ def frame_thread(state):
                 levels_left = calculate_levels_channel(left, log_bins)
                 levels_right = calculate_levels_channel(right, log_bins)
 
-                levels = list(reversed(levels_left)) + levels_right
+                levels = numpy.concatenate((levels_left[::-1], levels_right))
 
                 exponent = state.exponent
 
-                arr = numpy.array(levels[2:], dtype=numpy.float64)
+                arr = levels[2:].astype(numpy.float64)
                 arr = numpy.power(arr, exponent)
                 arr = numpy.where(arr <= 60, 0, numpy.minimum(arr, MAX_BRIGHTNESS))
                 output_levels = arr.astype(numpy.int32)

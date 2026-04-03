@@ -318,6 +318,7 @@ autoconnect=true
 [wifi]
 ssid=${WIFI_SSID}
 mode=infrastructure
+band=a
 
 [wifi-security]
 key-mgmt=wpa-psk

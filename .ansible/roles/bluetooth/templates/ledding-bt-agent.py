@@ -26,6 +26,7 @@ class AutoAcceptAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
         print("AuthorizeService (%s, %s)" % (device, uuid))
+        self._trust_device(device)
         if uuid.lower() in ALLOWED_UUIDS:
             print("  -> Authorized")
             return
@@ -59,6 +60,7 @@ class AutoAcceptAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
         print("RequestAuthorization (%s) -> authorized" % device)
+        self._trust_device(device)
         return
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
