@@ -103,6 +103,32 @@ def list_devices():
     p.terminate()
 
 
+def _update_monitor_source():
+    """Set PipeWire's default source to the default sink's monitor.
+
+    This ensures the FFT always captures whatever audio is being played
+    out (e.g. Bluetooth stream routed to the HiFiBerry DAC).
+    Returns the chosen monitor name or None.
+    """
+    env = {**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'}
+    try:
+        result = subprocess.run(
+            ['pactl', 'get-default-sink'],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        default_sink = result.stdout.strip()
+        if default_sink:
+            monitor_name = default_sink + '.monitor'
+            subprocess.run(
+                ['pactl', 'set-default-source', monitor_name],
+                timeout=5, env=env,
+            )
+            return monitor_name
+    except Exception as e:
+        print('pactl failed: %s' % e)
+    return None
+
+
 def find_monitor_source():
     """Configure and find the monitor source for FFT analysis.
 
@@ -110,26 +136,9 @@ def find_monitor_source():
     returns the PyAudio device index for the 'default' device. This way
     PyAudio reads whatever audio is being played out (Bluetooth stream).
     """
-    env = {**os.environ, 'XDG_RUNTIME_DIR': '/run/user/1000'}
-
-    # Find the first .monitor source and set it as default
-    try:
-        result = subprocess.run(
-            ['pactl', 'list', 'sources', 'short'],
-            capture_output=True, text=True, timeout=5, env=env,
-        )
-        for line in result.stdout.strip().split('\n'):
-            parts = line.split('\t')
-            if len(parts) >= 2 and '.monitor' in parts[1]:
-                monitor_name = parts[1]
-                subprocess.run(
-                    ['pactl', 'set-default-source', monitor_name],
-                    timeout=5, env=env,
-                )
-                print('Set default source to monitor: %s' % monitor_name)
-                break
-    except Exception as e:
-        print('pactl failed: %s' % e)
+    monitor = _update_monitor_source()
+    if monitor:
+        print('Set default source to monitor: %s' % monitor)
 
     # Find the 'default' PyAudio device
     p = pyaudio.PyAudio()
@@ -301,9 +310,17 @@ def frame_thread(state):
                               samplerate=state.samplerate)
 
     output_led_count = state.num_leds - 4
+    last_source_check = time.monotonic()
 
     try:
         while True:
+            # Periodically re-detect monitor source (picks up Bluetooth
+            # connections that happen after the service starts)
+            now_mono = time.monotonic()
+            if now_mono - last_source_check > 10:
+                last_source_check = now_mono
+                _update_monitor_source()
+
             mode = state.pi_mode
 
             if mode == 'fft':

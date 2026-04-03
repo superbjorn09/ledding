@@ -7,6 +7,7 @@
       - pipewire
       - pipewire-pulse
       - pipewire-audio
+      - pulseaudio-utils
       - wireplumber
       - libspa-0.2-bluetooth
 
@@ -74,6 +75,12 @@
   file:
     path: /etc/wireplumber/wireplumber.conf.d
     state: directory
+
+- name: Deploying WirePlumber default sink config (HiFiBerry priority)
+  copy:
+    src: templates/50-default-sink.conf
+    dest: /etc/wireplumber/wireplumber.conf.d/50-default-sink.conf
+  notify: Restart WirePlumber
 
 - name: Deploying WirePlumber Bluetooth autoconnect config
   copy:
