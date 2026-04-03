@@ -43,10 +43,6 @@ detect_latest_image() {
     IMAGE_XZ=$(basename "$IMAGE_URL")
 }
 
-detect_latest_image
-IMAGE_SHA_URL="${IMAGE_URL}.sha256"
-IMAGE_IMG="${IMAGE_XZ%.xz}"
-
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -72,6 +68,11 @@ trap cleanup EXIT
 if [ "$(id -u)" -ne 0 ]; then
     error "This script must be run as root (use sudo)."
 fi
+
+detect_latest_image
+
+IMAGE_SHA_URL="${IMAGE_URL}.sha256"
+IMAGE_IMG="${IMAGE_XZ%.xz}"
 
 for cmd in lsblk openssl dd xz wget; do
     command -v "$cmd" &>/dev/null || error "'${cmd}' not found. Install it first."
