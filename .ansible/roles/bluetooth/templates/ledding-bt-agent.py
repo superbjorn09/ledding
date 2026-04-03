@@ -67,9 +67,8 @@ class AutoAcceptAgent(dbus.service.Object):
 
     def _trust_device(self, device_path):
         try:
-            bus = dbus.SystemBus()
             device = dbus.Interface(
-                bus.get_object(BUS_NAME, device_path),
+                self.connection.get_object(BUS_NAME, device_path),
                 "org.freedesktop.DBus.Properties",
             )
             device.Set("org.bluez.Device1", "Trusted", True)
