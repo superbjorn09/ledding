@@ -1,5 +1,5 @@
 import random
-from effects.base import PiEffect
+from effects.base import PiEffect, MAX_BRIGHTNESS
 
 
 class EffectSparkle(PiEffect):
@@ -11,7 +11,7 @@ class EffectSparkle(PiEffect):
         self.sparkles = {}
         self.spawn_rate = 8
         self.max_life = 15
-        self.hue = 50  # gold
+        self.hue = 50
         self.auto_color = True
 
     def next_frame(self, num_leds):
@@ -22,15 +22,14 @@ class EffectSparkle(PiEffect):
             if idx not in self.sparkles:
                 self.sparkles[idx] = self.max_life
 
-        dead = []
+        updated = {}
         for idx, life in self.sparkles.items():
             if idx < num_leds:
-                brightness = int(253 * (life / self.max_life))
+                brightness = int(MAX_BRIGHTNESS * (life / self.max_life))
                 frame[idx] = max(frame[idx], brightness)
-            self.sparkles[idx] = life - 1
-            if self.sparkles[idx] <= 0:
-                dead.append(idx)
-        for idx in dead:
-            del self.sparkles[idx]
+            remaining = life - 1
+            if remaining > 0:
+                updated[idx] = remaining
+        self.sparkles = updated
 
         return frame
