@@ -298,7 +298,6 @@
     <script>
         let currentPiMode = 'fft';
         let debugActive = false;
-        let debugInterval = null;
         let currentBassEffect = 'off';
         let smoothActive = false;
         let peaksActive = false;
@@ -427,20 +426,22 @@
                 btn.classList.add('toggle-on');
                 strip.classList.add('active');
                 post('/debug/on');
-                debugInterval = setInterval(fetchLevels, 50);
+                fetchLevels();
             } else {
                 btn.textContent = 'Show LEDs';
                 btn.classList.remove('toggle-on');
                 strip.classList.remove('active');
                 post('/debug/off');
-                clearInterval(debugInterval);
-                debugInterval = null;
             }
         }
 
         function fetchLevels() {
+            if (!debugActive) return;
             fetch('/debug/levels').then(r => r.json()).then(data => {
                 drawLeds(data.levels || [], data.hue || 0, data.saturation || 100, data.mode || 'fft');
+                if (debugActive) setTimeout(fetchLevels, 50);
+            }).catch(() => {
+                if (debugActive) setTimeout(fetchLevels, 200);
             });
         }
 
