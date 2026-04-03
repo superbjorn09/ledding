@@ -1,5 +1,7 @@
 import time
 
+MAX_BRIGHTNESS = 253  # 0xFE (254) and 0xFF (255) are reserved for serial protocol
+
 
 class PiEffect:
     """Base class for Pi-side LED effects."""
