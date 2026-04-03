@@ -23,6 +23,7 @@ Fancy LED project
         * [Start a debugging session](#start-a-debugging-session)
 * [Raspberry Pi Audio FFT](#raspberry-pi-audio-fft)
     * [How it works](#how-it-works)
+    * [Hardware connections](#hardware-connections)
     * [Raspberry Pi setup](#raspberry-pi-setup)
         * [Step 1: Prepare the SD card](#step-1-prepare-the-sd-card)
         * [Step 2: Deploy with Ansible](#step-2-deploy-with-ansible)
@@ -31,6 +32,7 @@ Fancy LED project
 * [Specifics for Maite Installation](#specifics-for-maite-installation)
     * [Box interfaces](#box-interfaces)
     * [Buttons](#buttons)
+* [Troubleshooting](#troubleshooting)
 * [TODO](#todo)
 * [Lessons learned](#lessons-learned)
 
@@ -258,9 +260,30 @@ The serial protocol uses `0xFF` as frame delimiter for FFT data and `0xFE` as co
 
 ### Hardware connections
 
-- **ESP32**: Connected via USB cable (Micro-USB on ESP32 to USB-A on Pi), appears as `/dev/ttyUSB0`
-- **Audio output**: HiFiBerry DAC+ ADC (I2S, GPIO 18-21) or onboard 3.5mm jack as fallback
-- **Bluetooth**: Onboard (Pi 3/4/5), phone connects as A2DP source
+```
+                         Raspberry Pi
+                    ┌────────────────────┐
+Phone ──Bluetooth──>│ Onboard BT         │
+                    │                    │
+                    │ PipeWire ──> FFT ──┼── USB ──> ESP32 ──> LED Strips
+                    │       │            │          (Micro-USB)
+                    │       └──> Audio   │
+                    │      (I2S GPIO18-21)│
+                    └──────┬─────────────┘
+                           │
+                    HiFiBerry DAC+ ADC
+                           │
+                       Speakers
+```
+
+| Connection | Detail |
+|---|---|
+| ESP32 | USB cable: Micro-USB (ESP32) to USB-A (Pi), appears as `/dev/ttyUSB0` |
+| HiFiBerry DAC+ ADC | I2S on GPIO 18-21, active when HAT is attached |
+| Audio fallback | Onboard 3.5mm jack when no HiFiBerry is present |
+| Bluetooth | Onboard (Pi 3/4/5), phone connects as A2DP source to "Ledding Speaker" |
+| LED Strips | WS2812B/WS2815, connected to ESP32 data pin |
+| Power | 12V PSU for LED strips, 5V USB for Pi and ESP32 |
 
 Requirements: Python 3, pyaudio, numpy, pyserial, PipeWire, BlueZ.
 
@@ -376,6 +399,69 @@ U_1.2 = 0.175 * 3.375 A = 0.591 V
 7. Mode next
 8. Mode prev
 
+
+## Troubleshooting
+
+### System health check
+Open `http://<pi-ip>:8000/health` for a quick status overview (FFT thread, serial, PipeWire).
+
+### WiFi not connecting after boot
+Trixie ships with WiFi soft-blocked and NetworkManager radio disabled.
+```
+sudo rfkill unblock wifi
+sudo nmcli radio wifi on
+sudo systemctl restart NetworkManager
+```
+If `wlan0` shows as `unavailable`: check that `/etc/NetworkManager/NetworkManager.conf` uses `plugins=keyfile` (not `ifupdown`).
+
+### Bluetooth not discoverable
+```
+sudo rfkill unblock bluetooth
+sudo systemctl restart bt-agent
+bluetoothctl show | grep -E "Powered|Discoverable"
+```
+Both should be `yes`. If not, check `journalctl -u bt-agent -f`.
+
+### Bluetooth pairing fails
+The Pi uses a D-Bus agent that auto-confirms pairing. If pairing fails:
+```
+# Remove old pairing on both sides (Pi + phone), then retry
+bluetoothctl remove <MAC>
+sudo systemctl restart bt-agent
+```
+
+### No audio after Bluetooth connection
+Check that WirePlumber loaded the Bluetooth monitor and the audio profile is active:
+```
+wpctl status | head -25              # Should show the phone as [bluez5] device
+wpctl inspect <device-id> | grep profile  # Should be "audio-gateway", not "off"
+```
+If the profile is "off", WirePlumber's seat-monitoring patch may have been reverted by an apt upgrade:
+```
+sudo /usr/local/bin/fix-wireplumber.sh
+systemctl --user restart wireplumber
+```
+
+### FFT not producing data (LED debug shows black)
+Check that PipeWire's monitor source is set as default:
+```
+pactl list sources short          # Look for a .monitor source
+pactl set-default-source <name>   # Set it as default
+sudo systemctl restart pyaudio
+```
+
+### Service not starting after reboot
+```
+systemctl is-enabled pyaudio bt-agent    # Both should be "enabled"
+journalctl -u pyaudio -n 20             # Check for errors
+```
+
+### SD card corruption after power loss
+The `prepare-sd.sh` script configures `noatime`, tmpfs for `/tmp`, and volatile journald to reduce writes. For existing installations, add manually:
+```
+# /etc/fstab: add noatime to existing entries
+# /etc/systemd/journald.conf.d/ledding.conf: Storage=volatile
+```
 
 ## TODO
 1. Add schematics
