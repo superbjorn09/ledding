@@ -6,7 +6,7 @@
 import pyaudio
 import serial
 import numpy
-import struct
+import glob
 import threading
 import json
 import time
@@ -24,6 +24,7 @@ class ThreadingHTTPServer(ThreadingMixIn, TCPServer):
 # Allow imports from the script's directory (for effects/)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from effects import EFFECTS
+from effects.base import MAX_BRIGHTNESS
 
 # Serial command protocol — must match include/serial_cmd.h
 CMD_PREFIX         = 0xFE
@@ -145,7 +146,6 @@ def find_monitor_source():
 
 def find_serial_port():
     """Find the ESP32 serial port. Tries /dev/ttyUSB* first, then /dev/serial0."""
-    import glob
     for pattern in ['/dev/ttyUSB*', '/dev/serial0']:
         ports = sorted(glob.glob(pattern))
         if ports:
@@ -211,11 +211,11 @@ def apply_bass_flash(output_levels, bass_state, now):
         return output_levels
 
     fade = 1.0 - (elapsed / fade_duration)
-    flash_val = int(253 * fade * bass_state.intensity)
+    flash_val = int(MAX_BRIGHTNESS * fade * bass_state.intensity)
 
     result = []
     for level in output_levels:
-        result.append(min(max(level, flash_val), 253))
+        result.append(min(max(level, flash_val), MAX_BRIGHTNESS))
     return result
 
 
@@ -234,7 +234,7 @@ def apply_bass_pulse(output_levels, bass_state, now):
     result = []
     for level in output_levels:
         boosted = int(level + 200 * boost)
-        result.append(min(boosted, 253))
+        result.append(min(boosted, MAX_BRIGHTNESS))
     return result
 
 
@@ -258,8 +258,8 @@ def apply_bass_wave(output_levels, bass_state, now):
         # How close is this LED to the wave front?
         wave_proximity = 1.0 - min(abs(dist_from_center - wave_front) / wave_width, 1.0)
         if wave_proximity > 0:
-            boost = int(253 * wave_proximity * fade * bass_state.intensity)
-            result[i] = min(result[i] + boost, 253)
+            boost = int(MAX_BRIGHTNESS * wave_proximity * fade * bass_state.intensity)
+            result[i] = min(result[i] + boost, MAX_BRIGHTNESS)
     return result
 
 
@@ -335,7 +335,7 @@ def frame_thread(state):
                 for level in levels[2:]:
                     level = int(level ** exponent)
                     if level >= 254:
-                        level = 253
+                        level = MAX_BRIGHTNESS
                     elif level <= 60:
                         level = 0
                     output_levels.append(level)
@@ -367,7 +367,7 @@ def frame_thread(state):
                 if state.bass_effect != BASS_EFFECT_OFF:
                     bass_avg = detect_bass(output_levels, state.num_leds, state.bass_threshold)
                     if bass_avg > state.bass_threshold:
-                        intensity = min((bass_avg - state.bass_threshold) / (253 - state.bass_threshold), 1.0)
+                        intensity = min((bass_avg - state.bass_threshold) / (MAX_BRIGHTNESS - state.bass_threshold), 1.0)
                         if now - state.bass_state.trigger_time > 0.1:
                             state.bass_state.trigger_time = now
                             state.bass_state.intensity = intensity
@@ -384,7 +384,7 @@ def frame_thread(state):
                     continue
 
                 output_levels = effect.next_frame(output_led_count)
-                output_levels = [max(0, min(253, v)) for v in output_levels]
+                output_levels = [max(0, min(MAX_BRIGHTNESS, v)) for v in output_levels]
                 time.sleep(1.0 / 30)
 
             # --- Common output ---
