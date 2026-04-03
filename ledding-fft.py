@@ -13,7 +13,12 @@ import time
 import math
 import sys
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn, TCPServer
+
+
+class ThreadingHTTPServer(ThreadingMixIn, TCPServer):
+    allow_reuse_address = True
 
 # Allow imports from the script's directory (for effects/)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +85,7 @@ class AppState:
         self.frame_thread = None
         self.fft_error = None
         self.fft_restart_count = 0
+        self.web_token = os.environ.get('LEDDING_TOKEN', '')
         self.pi_mode = 'fft'
         self.effects = {name: cls() for name, cls in EFFECTS.items()}
 
@@ -462,6 +468,7 @@ def make_handler(state):
                     'fft_error': state.fft_error,
                     'fft_restart_count': state.fft_restart_count,
                     'pi_mode': state.pi_mode,
+                    'serial_connected': state.ser is not None,
                 })
             elif self.path == '/health':
                 import subprocess, os
@@ -499,10 +506,19 @@ def make_handler(state):
                     'saturation': sat,
                     'mode': state.pi_mode,
                 })
+            elif self.path == '/favicon.ico':
+                self.send_response(204)
+                self.end_headers()
             else:
                 self.send_error(404)
 
         def do_POST(self):
+            if state.web_token:
+                auth = self.headers.get('Authorization', '')
+                if auth != 'Bearer ' + state.web_token:
+                    self._json_response({'status': 'unauthorized'}, 401)
+                    return
+
             if self.path == '/fft/start':
                 state.pi_mode = 'fft'
                 state.fft_running.set()
@@ -657,7 +673,7 @@ def main():
     supervisor = threading.Thread(target=frame_supervisor, args=(state,), daemon=True)
     supervisor.start()
 
-    server = HTTPServer(('0.0.0.0', 8000), make_handler(state))
+    server = ThreadingHTTPServer(('0.0.0.0', 8000), make_handler(state))
     print("Web server running on http://0.0.0.0:8000/")
 
     try:

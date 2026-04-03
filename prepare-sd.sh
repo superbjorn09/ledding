@@ -21,11 +21,31 @@
 set -euo pipefail
 
 # ----- Image configuration -----
-IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2025-12-04/2025-12-04-raspios-trixie-arm64-lite.img.xz"
-IMAGE_SHA_URL="${IMAGE_URL}.sha256"
-IMAGE_XZ="2025-12-04-raspios-trixie-arm64-lite.img.xz"
-IMAGE_IMG="${IMAGE_XZ%.xz}"
+IMAGE_BASE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images"
+FALLBACK_IMAGE_URL="${IMAGE_BASE_URL}/raspios_lite_arm64-2025-12-04/2025-12-04-raspios-trixie-arm64-lite.img.xz"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+detect_latest_image() {
+    info "Detecting latest Raspberry Pi OS Trixie Lite image..."
+    local dir xz
+    dir=$(curl -sL "${IMAGE_BASE_URL}/" | grep -oP 'raspios_lite_arm64-\d{4}-\d{2}-\d{2}' | sort | tail -1)
+    if [ -n "$dir" ]; then
+        xz=$(curl -sL "${IMAGE_BASE_URL}/${dir}/" | grep -oP '\d{4}-\d{2}-\d{2}-raspios-trixie-arm64-lite\.img\.xz' | head -1)
+        if [ -n "$xz" ]; then
+            IMAGE_URL="${IMAGE_BASE_URL}/${dir}/${xz}"
+            IMAGE_XZ="$xz"
+            info "Found: ${IMAGE_XZ}"
+            return
+        fi
+    fi
+    warn "Auto-detect failed, using fallback image URL."
+    IMAGE_URL="$FALLBACK_IMAGE_URL"
+    IMAGE_XZ=$(basename "$IMAGE_URL")
+}
+
+detect_latest_image
+IMAGE_SHA_URL="${IMAGE_URL}.sha256"
+IMAGE_IMG="${IMAGE_XZ%.xz}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

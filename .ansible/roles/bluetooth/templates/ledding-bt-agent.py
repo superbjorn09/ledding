@@ -175,6 +175,12 @@ def main():
     # Try to reconnect known devices at startup
     reconnect_known_devices(bus)
 
+    # Periodically retry reconnecting (every 30s)
+    def periodic_reconnect():
+        reconnect_known_devices(dbus.SystemBus())
+        return True
+    GLib.timeout_add_seconds(30, periodic_reconnect)
+
     print("Waiting for Bluetooth connections...")
     GLib.MainLoop().run()
 

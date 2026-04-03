@@ -2,9 +2,11 @@
 Description=Set audio volume to 100%
 After=pipewire.service wireplumber.service
 Requires=pipewire.service
+PartOf=pipewire.service
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 ExecStartPre=/bin/sleep 3
 ExecStart=/usr/bin/wpctl set-volume @DEFAULT_SINK@ 1.0
 

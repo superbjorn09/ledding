@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ledding Control</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💡</text></svg>">
     <style>
         body { font-family: sans-serif; max-width: 960px; margin: 20px auto; padding: 0 10px; }
         h1 { font-size: 1.4em; }
@@ -266,6 +267,7 @@
         <canvas id="led-canvas"></canvas>
     </div>
 
+    <div id="esp32-controls" style="display:none;">
     <h2>ESP32 Mode</h2>
     <div class="btn-group">
         <button onclick="cmd('prev_mode')">&#9664; Prev</button>
@@ -289,6 +291,7 @@
         <button onclick="cmd('dec_intensity')">&#8722;</button>
         <button onclick="cmd('inc_intensity')">+</button>
     </div>
+    </div>
 
     <div id="status"></div>
 
@@ -300,13 +303,27 @@
         let smoothActive = false;
         let peaksActive = false;
 
+        function getToken() {
+            return localStorage.getItem('ledding_token') || '';
+        }
+
         function post(url, data) {
+            var headers = {'Content-Type': 'application/json'};
+            var token = getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
             fetch(url, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: headers,
                 body: data ? JSON.stringify(data) : ''
-            }).then(r => r.json()).then(r => {
-                document.getElementById('status').textContent = r.status || '';
+            }).then(r => {
+                if (r.status === 401) {
+                    var t = prompt('Enter access token:');
+                    if (t) { localStorage.setItem('ledding_token', t); post(url, data); }
+                    return r.json();
+                }
+                return r.json();
+            }).then(r => {
+                if (r) document.getElementById('status').textContent = r.status || '';
             });
         }
         function cmd(name) {
@@ -481,6 +498,9 @@
             if (s.pi_mode) {
                 document.getElementById('pi-mode').value = s.pi_mode;
                 setPiMode(s.pi_mode);
+            }
+            if (s.serial_connected) {
+                document.getElementById('esp32-controls').style.display = '';
             }
             if (s.debug_enabled) {
                 toggleDebug();

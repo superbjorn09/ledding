@@ -1,4 +1,4 @@
-import random
+import numpy
 from effects.base import PiEffect
 
 
@@ -12,24 +12,25 @@ class EffectMeteor(PiEffect):
         self.speed = 2
         self.size = 10
         self.trail = None
-        self.hue = 15  # orange
+        self.hue = 15
 
     def next_frame(self, num_leds):
         if self.trail is None or len(self.trail) != num_leds:
-            self.trail = [0] * num_leds
+            self.trail = numpy.zeros(num_leds, dtype=numpy.int32)
 
-        for j in range(num_leds):
-            if random.randint(0, 9) > 5:
-                self.trail[j] = max(0, self.trail[j] - 64)
+        # Random fade: ~40% of LEDs decay by 64 each frame
+        mask = numpy.random.randint(0, 10, size=num_leds) > 5
+        self.trail[mask] = numpy.maximum(0, self.trail[mask] - 64)
 
-        for j in range(self.size):
-            idx = self.pos - j
-            if 0 <= idx < num_leds:
-                self.trail[idx] = 253
+        # Draw meteor head
+        start = max(0, self.pos - self.size + 1)
+        end = min(num_leds, self.pos + 1)
+        if start < end:
+            self.trail[start:end] = 253
 
         self.pos += self.speed
         if self.pos >= num_leds + num_leds:
             self.pos = 0
-            self.trail = [0] * num_leds
+            self.trail[:] = 0
 
-        return list(self.trail)
+        return numpy.clip(self.trail, 0, 253).tolist()

@@ -1,4 +1,4 @@
-import random
+import numpy
 from effects.base import PiEffect
 
 
@@ -16,25 +16,24 @@ class EffectFire(PiEffect):
     def next_frame(self, num_leds):
         half = num_leds // 2
         if self._heat is None or len(self._heat) != half:
-            self._heat = [0] * half
+            self._heat = numpy.zeros(half, dtype=numpy.int32)
 
         heat = self._heat
+        max_cool = ((self.cooling * 10) // half) + 2
 
         # Cool down
-        for i in range(half):
-            heat[i] = max(0, heat[i] - random.randint(0, ((self.cooling * 10) // half) + 2))
+        heat -= numpy.random.randint(0, max(max_cool, 1), size=half)
+        numpy.clip(heat, 0, 255, out=heat)
 
         # Heat rises (drift upward)
-        for i in range(half - 1, 2, -1):
-            heat[i] = (heat[i - 1] + heat[i - 2] + heat[i - 2]) // 3
+        heat[3:] = (heat[2:-1] + heat[1:-2] + heat[1:-2]) // 3
 
         # Random sparks at the base
-        if random.randint(0, 255) < self.sparking:
-            y = random.randint(0, min(7, half - 1))
-            heat[y] = min(255, heat[y] + random.randint(160, 255))
+        if numpy.random.randint(0, 256) < self.sparking:
+            y = numpy.random.randint(0, min(8, half))
+            heat[y] = min(255, int(heat[y]) + numpy.random.randint(160, 256))
 
-        # Map heat to brightness
-        levels = [min(253, h) for h in heat]
+        levels = numpy.clip(heat, 0, 253)
 
         # Mirror: flames from both edges toward center
-        return list(reversed(levels)) + levels
+        return levels[::-1].tolist() + levels.tolist()

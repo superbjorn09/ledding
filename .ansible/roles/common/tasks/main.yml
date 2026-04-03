@@ -7,11 +7,12 @@
       - python3-numpy
       - python3-serial
 
-- name: Cloning Git Repository ledding
+- name: Updating Git Repository ledding
   git:
     repo: 'https://github.com/superbjorn09/ledding'
     dest: /home/{{ deploy_user }}/ledding
-    force: yes
+    update: yes
+    version: master
 
 - name: Setting up permissions
   file:
