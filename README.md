@@ -268,7 +268,7 @@ Phone ──Bluetooth──>│ Onboard BT         │
                     │ PipeWire ──> FFT ──┼── USB ──> ESP32 ──> LED Strips
                     │       │            │          (Micro-USB)
                     │       └──> Audio   │
-                    │      (I2S GPIO18-21)│
+                    │     (I2S GPIO18-21)│
                     └──────┬─────────────┘
                            │
                     HiFiBerry DAC+ ADC
