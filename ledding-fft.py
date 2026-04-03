@@ -331,36 +331,26 @@ def frame_thread(state):
 
                 exponent = state.exponent
 
-                output_levels = []
-                for level in levels[2:]:
-                    level = int(level ** exponent)
-                    if level >= 254:
-                        level = MAX_BRIGHTNESS
-                    elif level <= 60:
-                        level = 0
-                    output_levels.append(level)
+                arr = numpy.array(levels[2:], dtype=numpy.float64)
+                arr = numpy.power(arr, exponent)
+                arr = numpy.where(arr <= 60, 0, numpy.minimum(arr, MAX_BRIGHTNESS))
+                output_levels = arr.astype(numpy.int32)
 
                 # Frame smoothing
                 smoothing = state.smoothing
                 if smoothing > 0 and state.prev_levels is not None and len(state.prev_levels) == len(output_levels):
-                    output_levels = [
-                        int(prev * smoothing + cur * (1.0 - smoothing))
-                        for prev, cur in zip(state.prev_levels, output_levels)
-                    ]
-                state.prev_levels = list(output_levels)
+                    output_levels = (state.prev_levels * smoothing + output_levels * (1.0 - smoothing)).astype(numpy.int32)
+                state.prev_levels = output_levels.copy()
 
                 # Peak hold
                 peak_decay = state.peak_decay
                 if peak_decay > 0:
                     if state.peak_levels is None or len(state.peak_levels) != len(output_levels):
-                        state.peak_levels = list(output_levels)
+                        state.peak_levels = output_levels.copy()
                     else:
-                        for i in range(len(output_levels)):
-                            if output_levels[i] >= state.peak_levels[i]:
-                                state.peak_levels[i] = output_levels[i]
-                            else:
-                                state.peak_levels[i] = int(state.peak_levels[i] * peak_decay)
-                            output_levels[i] = max(output_levels[i], state.peak_levels[i])
+                        decayed = (state.peak_levels * peak_decay).astype(numpy.int32)
+                        state.peak_levels = numpy.maximum(output_levels, decayed)
+                        output_levels = numpy.maximum(output_levels, state.peak_levels)
 
                 # Bass detection and effect overlay
                 now = time.time()
@@ -374,7 +364,11 @@ def frame_thread(state):
 
                     effect_fn = BASS_EFFECTS.get(state.bass_effect)
                     if effect_fn:
-                        output_levels = effect_fn(output_levels, state.bass_state, now)
+                        output_levels = effect_fn(output_levels.tolist(), state.bass_state, now)
+                    else:
+                        output_levels = output_levels.tolist()
+                else:
+                    output_levels = output_levels.tolist()
 
             else:
                 # --- Pi-side effect path ---
@@ -384,7 +378,7 @@ def frame_thread(state):
                     continue
 
                 output_levels = effect.next_frame(output_led_count)
-                output_levels = [max(0, min(MAX_BRIGHTNESS, v)) for v in output_levels]
+                output_levels = numpy.clip(output_levels, 0, MAX_BRIGHTNESS).tolist()
                 time.sleep(1.0 / 30)
 
             # --- Common output ---
@@ -533,15 +527,15 @@ def make_handler(state):
                 if body is None:
                     return
                 if 'exponent' in body:
-                    state.exponent = float(body['exponent'])
+                    state.exponent = max(0.1, min(10.0, float(body['exponent'])))
                 if 'num_leds' in body:
-                    state.num_leds = int(body['num_leds'])
+                    state.num_leds = max(10, min(2000, int(body['num_leds'])))
                 if 'smoothing' in body:
-                    state.smoothing = float(body['smoothing'])
+                    state.smoothing = max(0.0, min(0.99, float(body['smoothing'])))
                 if 'peak_decay' in body:
-                    state.peak_decay = float(body['peak_decay'])
+                    state.peak_decay = max(0.0, min(0.999, float(body['peak_decay'])))
                 if 'freq_max' in body:
-                    state.freq_max = int(body['freq_max'])
+                    state.freq_max = max(1000, min(24000, int(body['freq_max'])))
                 self._json_response({'status': 'params updated',
                                      'exponent': state.exponent})
 
@@ -561,7 +555,7 @@ def make_handler(state):
                 if body is None:
                     return
                 if 'threshold' in body:
-                    state.bass_threshold = int(body['threshold'])
+                    state.bass_threshold = max(1, min(MAX_BRIGHTNESS, int(body['threshold'])))
                 self._json_response({'status': 'bass threshold: %d' % state.bass_threshold})
 
             elif self.path == '/esp/command':
