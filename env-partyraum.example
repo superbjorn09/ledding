@@ -1,6 +1,6 @@
 export LEDDING_CONFIGURATION=CONF_PARTYRAUM
-export LEDDING_WLAN_SSID=musicstation
-export LEDDING_WLAN_PSK=testtesttest
+export LEDDING_WLAN_SSID=your_ssid
+export LEDDING_WLAN_PSK=your_password
 export LEDDING_ESP_IP=192,168,5,11
 export LEDDING_OTA_PORT=192.168.5.11
 export LEDDING_CABLE_PORT=/dev/ttyUSB0

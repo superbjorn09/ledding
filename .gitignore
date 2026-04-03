@@ -5,6 +5,7 @@
 .ccls-cache
 .clangd
 compile_commands.json
+env-partyraum
 env-maite
 env-superbjorn
 env-matthis
