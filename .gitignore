@@ -13,3 +13,4 @@ env-thias
 session.nvim
 *.img
 *.img.xz
+.swp

@@ -12,6 +12,7 @@
     repo: 'https://github.com/superbjorn09/ledding'
     dest: /home/{{ deploy_user }}/ledding
     update: yes
+    force: yes
     version: master
 
 - name: Setting up permissions
