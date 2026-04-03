@@ -11,7 +11,13 @@ import threading
 import json
 import time
 import math
+import sys
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Allow imports from the script's directory (for effects/)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from effects import EFFECTS
 
 # Serial command protocol — must match include/serial_cmd.h
 CMD_PREFIX         = 0xFE
@@ -71,9 +77,11 @@ class AppState:
         self.prev_levels = None
         self.peak_levels = None
         self.freq_max_changed = False
-        self.fft_thread = None
+        self.frame_thread = None
         self.fft_error = None
         self.fft_restart_count = 0
+        self.pi_mode = 'fft'
+        self.effects = {name: cls() for name, cls in EFFECTS.items()}
 
 
 def list_devices():
@@ -264,9 +272,9 @@ def send_command(state, cmd_byte):
         state.ser.write(bytes([CMD_PREFIX, cmd_byte]))
 
 
-def fft_thread(state):
-    """FFT processing loop running in a background thread."""
-    print("FFT thread started")
+def frame_thread(state):
+    """Frame generation loop: dispatches between FFT and Pi-side effects."""
+    print("Frame thread started")
 
     p = pyaudio.PyAudio()
     stream = p.open(
@@ -286,83 +294,95 @@ def fft_thread(state):
                               freq_min=20, freq_max=current_freq_max,
                               samplerate=state.samplerate)
 
+    output_led_count = state.num_leds - 4
+
     try:
         while True:
-            # wait until FFT is enabled
-            state.fft_running.wait()
+            mode = state.pi_mode
 
-            # Recompute bins if freq_max changed
-            if state.freq_max_changed:
-                current_freq_max = state.freq_max
-                log_bins = build_log_bins(half_leds, num_fft_bins,
-                                          freq_min=20, freq_max=current_freq_max,
-                                          samplerate=state.samplerate)
-                state.freq_max_changed = False
-                state.prev_levels = None
-                state.peak_levels = None
+            if mode == 'fft':
+                # --- FFT audio processing path ---
+                state.fft_running.wait()
 
-            data = stream.read(state.chunk, exception_on_overflow=False)
+                if state.freq_max_changed:
+                    current_freq_max = state.freq_max
+                    log_bins = build_log_bins(half_leds, num_fft_bins,
+                                              freq_min=20, freq_max=current_freq_max,
+                                              samplerate=state.samplerate)
+                    state.freq_max_changed = False
+                    state.prev_levels = None
+                    state.peak_levels = None
 
-            # Split stereo into left and right channels
-            stereo = numpy.frombuffer(data, dtype=numpy.int16)
-            left = stereo[0::2]
-            right = stereo[1::2]
+                data = stream.read(state.chunk, exception_on_overflow=False)
 
-            levels_left = calculate_levels_channel(left, log_bins)
-            levels_right = calculate_levels_channel(right, log_bins)
+                stereo = numpy.frombuffer(data, dtype=numpy.int16)
+                left = stereo[0::2]
+                right = stereo[1::2]
 
-            # Left channel: bass in center (reversed), Right channel: bass in center
-            levels = list(reversed(levels_left)) + levels_right
+                levels_left = calculate_levels_channel(left, log_bins)
+                levels_right = calculate_levels_channel(right, log_bins)
 
-            exponent = state.exponent
+                levels = list(reversed(levels_left)) + levels_right
 
-            output_levels = []
-            for level in levels[2:]:
-                level = int(level ** exponent)
-                if level >= 254:
-                    level = 253
-                elif level <= 60:
-                    level = 0
-                output_levels.append(level)
+                exponent = state.exponent
 
-            # Frame smoothing: blend with previous frame
-            smoothing = state.smoothing
-            if smoothing > 0 and state.prev_levels is not None and len(state.prev_levels) == len(output_levels):
-                output_levels = [
-                    int(prev * smoothing + cur * (1.0 - smoothing))
-                    for prev, cur in zip(state.prev_levels, output_levels)
-                ]
-            state.prev_levels = list(output_levels)
+                output_levels = []
+                for level in levels[2:]:
+                    level = int(level ** exponent)
+                    if level >= 254:
+                        level = 253
+                    elif level <= 60:
+                        level = 0
+                    output_levels.append(level)
 
-            # Peak hold: track and slowly decay peaks
-            peak_decay = state.peak_decay
-            if peak_decay > 0:
-                if state.peak_levels is None or len(state.peak_levels) != len(output_levels):
-                    state.peak_levels = list(output_levels)
-                else:
-                    for i in range(len(output_levels)):
-                        if output_levels[i] >= state.peak_levels[i]:
-                            state.peak_levels[i] = output_levels[i]
-                        else:
-                            state.peak_levels[i] = int(state.peak_levels[i] * peak_decay)
-                        output_levels[i] = max(output_levels[i], state.peak_levels[i])
+                # Frame smoothing
+                smoothing = state.smoothing
+                if smoothing > 0 and state.prev_levels is not None and len(state.prev_levels) == len(output_levels):
+                    output_levels = [
+                        int(prev * smoothing + cur * (1.0 - smoothing))
+                        for prev, cur in zip(state.prev_levels, output_levels)
+                    ]
+                state.prev_levels = list(output_levels)
 
-            # Bass detection and effect overlay
-            now = time.time()
-            if state.bass_effect != BASS_EFFECT_OFF:
-                bass_avg = detect_bass(output_levels, state.num_leds, state.bass_threshold)
-                if bass_avg > state.bass_threshold:
-                    # Normalize intensity: 0.0 to 1.0
-                    intensity = min((bass_avg - state.bass_threshold) / (253 - state.bass_threshold), 1.0)
-                    # Only re-trigger if previous effect has decayed enough
-                    if now - state.bass_state.trigger_time > 0.1:
-                        state.bass_state.trigger_time = now
-                        state.bass_state.intensity = intensity
+                # Peak hold
+                peak_decay = state.peak_decay
+                if peak_decay > 0:
+                    if state.peak_levels is None or len(state.peak_levels) != len(output_levels):
+                        state.peak_levels = list(output_levels)
+                    else:
+                        for i in range(len(output_levels)):
+                            if output_levels[i] >= state.peak_levels[i]:
+                                state.peak_levels[i] = output_levels[i]
+                            else:
+                                state.peak_levels[i] = int(state.peak_levels[i] * peak_decay)
+                            output_levels[i] = max(output_levels[i], state.peak_levels[i])
 
-                effect_fn = BASS_EFFECTS.get(state.bass_effect)
-                if effect_fn:
-                    output_levels = effect_fn(output_levels, state.bass_state, now)
+                # Bass detection and effect overlay
+                now = time.time()
+                if state.bass_effect != BASS_EFFECT_OFF:
+                    bass_avg = detect_bass(output_levels, state.num_leds, state.bass_threshold)
+                    if bass_avg > state.bass_threshold:
+                        intensity = min((bass_avg - state.bass_threshold) / (253 - state.bass_threshold), 1.0)
+                        if now - state.bass_state.trigger_time > 0.1:
+                            state.bass_state.trigger_time = now
+                            state.bass_state.intensity = intensity
 
+                    effect_fn = BASS_EFFECTS.get(state.bass_effect)
+                    if effect_fn:
+                        output_levels = effect_fn(output_levels, state.bass_state, now)
+
+            else:
+                # --- Pi-side effect path ---
+                effect = state.effects.get(mode)
+                if effect is None:
+                    time.sleep(0.1)
+                    continue
+
+                output_levels = effect.next_frame(output_led_count)
+                output_levels = [max(0, min(253, v)) for v in output_levels]
+                time.sleep(1.0 / 30)
+
+            # --- Common output ---
             if state.debug_enabled:
                 state.debug_levels = output_levels
 
@@ -372,21 +392,21 @@ def fft_thread(state):
                     state.ser.read()
 
     except Exception as e:
-        print("FFT thread error: %s" % e)
+        print("Frame thread error: %s" % e)
         state.fft_error = str(e)
     finally:
-        print("FFT thread stopping")
+        print("Frame thread stopping")
         stream.close()
         p.terminate()
 
 
-def fft_supervisor(state):
-    """Restart the FFT thread on crash, with exponential backoff."""
+def frame_supervisor(state):
+    """Restart the frame thread on crash, with exponential backoff."""
     backoff = 5
     while True:
         state.fft_error = None
-        t = threading.Thread(target=fft_thread, args=(state,), daemon=True)
-        state.fft_thread = t
+        t = threading.Thread(target=frame_thread, args=(state,), daemon=True)
+        state.frame_thread = t
         t.start()
         t.join()
         state.fft_restart_count += 1
@@ -434,11 +454,103 @@ HTML_PAGE = '''<!doctype html>
             height: 60px;
             display: block;
         }
+        .effect-cfg { display: none; }
+        .effect-cfg.active { display: block; }
+        .swatch {
+            width: 36px; height: 36px; padding: 0; border-radius: 50%;
+            border: 2px solid transparent; cursor: pointer;
+        }
+        .swatch.selected { border-color: #333; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #333; }
+        select { padding: 8px 12px; font-size: 1em; border-radius: 4px; border: 1px solid #ccc; }
     </style>
 </head>
 <body>
     <h1>Ledding Control</h1>
 
+    <h2>Effect</h2>
+    <div class="slider-row">
+        <select id="pi-mode" onchange="setPiMode(this.value)">
+            <option value="fft">FFT (Audio)</option>
+            <option value="static">Static</option>
+            <option value="bolt">Bolt</option>
+            <option value="strobe">Strobe</option>
+            <option value="sparkle">Sparkle</option>
+            <option value="meteor">Meteor</option>
+            <option value="rainbow">Rainbow</option>
+        </select>
+    </div>
+    <div id="effect-params">
+        <div class="effect-cfg" data-effect="static">
+            <div class="slider-row">
+                <label>Brightness:</label>
+                <input type="range" min="0" max="253" step="1" value="253"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('static','brightness',parseInt(this.value))">
+                <span>253</span>
+            </div>
+        </div>
+        <div class="effect-cfg" data-effect="bolt">
+            <div class="slider-row">
+                <label>Speed:</label>
+                <input type="range" min="0.5" max="15" step="0.5" value="3"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('bolt','speed',parseFloat(this.value))">
+                <span>3</span>
+            </div>
+        </div>
+        <div class="effect-cfg" data-effect="strobe">
+            <div class="slider-row">
+                <label>Rate (Hz):</label>
+                <input type="range" min="1" max="20" step="0.5" value="5"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('strobe','rate',parseFloat(this.value))">
+                <span>5</span>
+            </div>
+        </div>
+        <div class="effect-cfg" data-effect="sparkle">
+            <div class="slider-row">
+                <label>Density:</label>
+                <input type="range" min="1" max="30" step="1" value="8"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('sparkle','spawn_rate',parseInt(this.value))">
+                <span>8</span>
+            </div>
+        </div>
+        <div class="effect-cfg" data-effect="meteor">
+            <div class="slider-row">
+                <label>Speed:</label>
+                <input type="range" min="1" max="8" step="1" value="2"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('meteor','speed',parseInt(this.value))">
+                <span>2</span>
+            </div>
+        </div>
+        <div class="effect-cfg" data-effect="rainbow">
+            <div class="slider-row">
+                <label>Speed:</label>
+                <input type="range" min="0.5" max="10" step="0.5" value="2"
+                       oninput="this.nextElementSibling.textContent=this.value"
+                       onchange="setEffectParam('rainbow','speed',parseFloat(this.value))">
+                <span>2</span>
+            </div>
+        </div>
+    </div>
+    <div id="color-controls" style="display:none;">
+        <div class="btn-group" id="color-swatches">
+            <button class="swatch" style="background:#ff0000" onclick="pickColor(0,100)" title="Red"></button>
+            <button class="swatch" style="background:#ff8000" onclick="pickColor(30,100)" title="Orange"></button>
+            <button class="swatch" style="background:#ffff00" onclick="pickColor(60,100)" title="Yellow"></button>
+            <button class="swatch" style="background:#00ff00" onclick="pickColor(120,100)" title="Green"></button>
+            <button class="swatch" style="background:#00bfff" onclick="pickColor(195,100)" title="Cyan"></button>
+            <button class="swatch" style="background:#0040ff" onclick="pickColor(225,100)" title="Blue"></button>
+            <button class="swatch" style="background:#8000ff" onclick="pickColor(270,100)" title="Purple"></button>
+            <button class="swatch" style="background:#ff00ff" onclick="pickColor(300,100)" title="Pink"></button>
+            <button class="swatch" style="background:#ffffff;border:1px solid #ccc" onclick="pickColor(0,0)" title="White"></button>
+            <button id="btn-autocolor" onclick="toggleAutoColor()">Auto</button>
+        </div>
+    </div>
+
+    <div class="fft-only">
     <h2>FFT</h2>
     <div class="btn-group">
         <button class="on" onclick="post('/fft/start')">Start</button>
@@ -482,6 +594,7 @@ HTML_PAGE = '''<!doctype html>
         <span id="thresh-val"></span>
         <button onclick="document.getElementById('bass-threshold').value=80;document.getElementById('thresh-val').textContent='80';post('/bass/params',{threshold:80})">Reset</button>
     </div>
+    </div>
 
     <h2>LED Debug</h2>
     <div class="btn-group">
@@ -518,6 +631,7 @@ HTML_PAGE = '''<!doctype html>
     <div id="status"></div>
 
     <script>
+        let currentPiMode = 'fft';
         let debugActive = false;
         let debugInterval = null;
         let currentBassEffect = 'off';
@@ -552,6 +666,53 @@ HTML_PAGE = '''<!doctype html>
                     btn.classList.remove('effect-active');
                 }
             });
+        }
+
+        function setPiMode(mode) {
+            currentPiMode = mode;
+            post('/pi/mode', {mode: mode});
+            document.querySelectorAll('.fft-only').forEach(function(el) {
+                el.style.display = mode === 'fft' ? '' : 'none';
+            });
+            document.querySelectorAll('.effect-cfg').forEach(function(el) {
+                el.classList.toggle('active', el.dataset.effect === mode);
+            });
+            document.getElementById('color-controls').style.display = mode === 'fft' ? 'none' : '';
+        }
+
+        function pickColor(hue, sat) {
+            setEffectParam(currentPiMode, 'hue', hue);
+            setEffectParam(currentPiMode, 'saturation', sat);
+            setEffectParam(currentPiMode, 'auto_color', false);
+            document.getElementById('btn-autocolor').classList.remove('toggle-on');
+            updateSwatchSelection(hue, sat);
+        }
+
+        function updateSwatchSelection(hue, sat) {
+            document.querySelectorAll('.swatch').forEach(function(el) { el.classList.remove('selected'); });
+            var swatches = document.querySelectorAll('.swatch');
+            for (var i = 0; i < swatches.length; i++) {
+                var oc = swatches[i].getAttribute('onclick') || '';
+                if (oc.indexOf('pickColor('+hue+','+sat+')') >= 0) {
+                    swatches[i].classList.add('selected');
+                    break;
+                }
+            }
+        }
+
+        function toggleAutoColor() {
+            var btn = document.getElementById('btn-autocolor');
+            var isOn = btn.classList.toggle('toggle-on');
+            setEffectParam(currentPiMode, 'auto_color', isOn);
+            if (isOn) {
+                document.querySelectorAll('.swatch').forEach(function(el) { el.classList.remove('selected'); });
+            }
+        }
+
+        function setEffectParam(effect, param, value) {
+            var data = {mode: effect};
+            data[param] = value;
+            post('/pi/effect_params', data);
         }
 
         function toggleSmooth() {
@@ -600,11 +761,11 @@ HTML_PAGE = '''<!doctype html>
 
         function fetchLevels() {
             fetch('/debug/levels').then(r => r.json()).then(data => {
-                drawLeds(data.levels || []);
+                drawLeds(data.levels || [], data.hue || 0, data.saturation || 100, data.mode || 'fft');
             });
         }
 
-        function drawLeds(levels) {
+        function drawLeds(levels, effectHue, effectSat, mode) {
             const canvas = document.getElementById('led-canvas');
             const ctx = canvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
@@ -622,8 +783,17 @@ HTML_PAGE = '''<!doctype html>
 
             for (let i = 0; i < levels.length; i++) {
                 const v = Math.min(levels[i] / 253, 1);
-                const hue = 120 - v * 120; // green(0) -> red(max)
-                ctx.fillStyle = 'hsl(' + hue + ', 100%, ' + (v * 50) + '%)';
+                let hue, sat, lum;
+                if (mode === 'fft') {
+                    hue = 120 - v * 120;
+                    sat = 100;
+                    lum = v * 50;
+                } else {
+                    hue = effectHue;
+                    sat = effectSat;
+                    lum = v * 50;
+                }
+                ctx.fillStyle = 'hsl(' + hue + ', ' + sat + '%, ' + lum + '%)';
                 ctx.fillRect(i * ledW, h * (1 - v), ledW - 0.5, h * v);
             }
         }
@@ -645,6 +815,10 @@ HTML_PAGE = '''<!doctype html>
             if (s.peak_decay > 0) {
                 peaksActive = true;
                 document.getElementById('btn-peaks').classList.add('toggle-on');
+            }
+            if (s.pi_mode) {
+                document.getElementById('pi-mode').value = s.pi_mode;
+                setPiMode(s.pi_mode);
             }
             if (s.debug_enabled) {
                 toggleDebug();
@@ -688,13 +862,14 @@ def make_handler(state):
                     'smoothing': state.smoothing,
                     'peak_decay': state.peak_decay,
                     'freq_max': state.freq_max,
-                    'fft_thread_alive': state.fft_thread is not None and state.fft_thread.is_alive(),
+                    'fft_thread_alive': state.frame_thread is not None and state.frame_thread.is_alive(),
                     'fft_error': state.fft_error,
                     'fft_restart_count': state.fft_restart_count,
+                    'pi_mode': state.pi_mode,
                 })
             elif self.path == '/health':
                 import subprocess, os
-                fft_alive = state.fft_thread is not None and state.fft_thread.is_alive()
+                fft_alive = state.frame_thread is not None and state.frame_thread.is_alive()
                 serial_ok = state.ser is not None
                 pw_ok = False
                 try:
@@ -716,14 +891,24 @@ def make_handler(state):
                     'pipewire_ok': pw_ok,
                 })
             elif self.path == '/debug/levels':
+                hue = 0
+                sat = 100
+                effect = state.effects.get(state.pi_mode)
+                if effect:
+                    hue = effect.get_hue()
+                    sat = effect.saturation
                 self._json_response({
                     'levels': state.debug_levels,
+                    'hue': hue,
+                    'saturation': sat,
+                    'mode': state.pi_mode,
                 })
             else:
                 self.send_error(404)
 
         def do_POST(self):
             if self.path == '/fft/start':
+                state.pi_mode = 'fft'
                 state.fft_running.set()
                 self._json_response({'status': 'FFT started'})
 
@@ -790,6 +975,38 @@ def make_handler(state):
                 state.debug_levels = []
                 self._json_response({'status': 'debug off'})
 
+            elif self.path == '/pi/mode':
+                body = self._read_body()
+                if body is None:
+                    return
+                mode = body.get('mode', 'fft')
+                valid_modes = ['fft'] + list(state.effects.keys())
+                if mode not in valid_modes:
+                    self._json_response({'status': 'unknown mode: %s' % mode}, 400)
+                    return
+                state.pi_mode = mode
+                if mode == 'fft':
+                    state.fft_running.set()
+                else:
+                    state.fft_running.clear()
+                self._json_response({'status': 'mode: %s' % mode})
+
+            elif self.path == '/pi/effect_params':
+                body = self._read_body()
+                if body is None:
+                    return
+                mode = body.get('mode', state.pi_mode)
+                effect = state.effects.get(mode)
+                if effect is None:
+                    self._json_response({'status': 'unknown effect'}, 400)
+                    return
+                for key, val in body.items():
+                    if key == 'mode':
+                        continue
+                    if hasattr(effect, key):
+                        setattr(effect, key, type(getattr(effect, key))(val))
+                self._json_response({'status': 'effect params updated'})
+
             else:
                 self.send_error(404)
 
@@ -841,7 +1058,7 @@ def main():
         print("WARNING: Serial port not available (%s), running without ESP32" % e)
         state.ser = None
 
-    supervisor = threading.Thread(target=fft_supervisor, args=(state,), daemon=True)
+    supervisor = threading.Thread(target=frame_supervisor, args=(state,), daemon=True)
     supervisor.start()
 
     server = HTTPServer(('0.0.0.0', 8000), make_handler(state))
