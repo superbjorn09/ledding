@@ -231,8 +231,10 @@ bool EffectSound::calcNextFrame() {
 				Serial2.write(84);
 				return true;
 			}
-            leds[currentLED].setRGB(value, 0, 0);
-			currentLED++;
+            if (currentLED < NUM_LEDS) {
+				leds[currentLED].setRGB(value, 0, 0);
+				currentLED++;
+			}
 		}
 	}
 	return false;
