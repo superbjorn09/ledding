@@ -14,3 +14,4 @@ session.nvim
 *.img
 *.img.xz
 .swp
+effects/__pycache__/
