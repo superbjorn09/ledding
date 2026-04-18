@@ -407,7 +407,7 @@ def frame_thread(state):
             if state.ser is not None:
                 with state.serial_lock:
                     state.ser.write(bytes(output_levels) + b'\xff')
-                    state.ser.reset_input_buffer()
+                    state.ser.read(1)  # wait for ACK byte (84) from ESP
                 if state.debug_enabled:
                     print("serial tx: port=%s bytes=%d" % (state.ser.port, len(output_levels) + 1))
 
@@ -684,7 +684,7 @@ def main():
             state.ser = serial.Serial(
                 port=serial_port,
                 baudrate=115200,
-                timeout=5,
+                timeout=0.1,
             )
             print("Using serial port: %s (type: %s)" % (serial_port, "ttyUSB" if "ttyUSB" in serial_port else "hardware UART (mini-UART on Pi3 with BT)"))
         except serial.SerialException as e:
