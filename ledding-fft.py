@@ -67,7 +67,7 @@ class AppState:
         self.serial_lock = threading.Lock()
         self.fft_running = threading.Event()
         self.fft_running.set()  # start with FFT active
-        self.exponent = 2.5
+        self.exponent = 2.3
         self.num_leds = 480
         self.chunk = 2**11
         self.samplerate = 48000
@@ -209,9 +209,9 @@ def detect_bass(output_levels, num_leds, threshold):
     start = max(mid - BASS_BINS, 0)
     end = min(mid + BASS_BINS, n)
     bass_section = output_levels[start:end]
-    if not bass_section:
+    if len(bass_section) == 0:
         return 0
-    return sum(bass_section) / len(bass_section)
+    return int(numpy.mean(bass_section))
 
 
 def apply_bass_flash(output_levels, bass_state, now):
@@ -285,8 +285,8 @@ def send_command(state, cmd_byte):
     """Send a command to the ESP32 via the serial command protocol."""
     if state.ser is None:
         return
-    with state.serial_lock:
-        state.ser.write(bytes([CMD_PREFIX, cmd_byte]))
+    # with state.serial_lock:
+    #     state.ser.write(bytes([CMD_PREFIX, cmd_byte]))
 
 
 def frame_thread(state):
@@ -398,21 +398,36 @@ def frame_thread(state):
 
                 output_levels = effect.next_frame(output_led_count)
                 output_levels = numpy.clip(output_levels, 0, MAX_BRIGHTNESS).tolist()
-                time.sleep(1.0 / 30)
+                #time.sleep(1.0 / 30)
+                time.sleep(0.001)
 
             # --- Common output ---
             if state.debug_enabled:
                 state.debug_levels = output_levels
 
             if state.ser is not None:
-                with state.serial_lock:
-                    state.ser.write(bytes(output_levels) + b'\xff')
-                    state.ser.read(1)  # wait for ACK byte (84) from ESP
-                if state.debug_enabled:
-                    print("serial tx: port=%s bytes=%d" % (state.ser.port, len(output_levels) + 1))
+                try:
+                    with state.serial_lock:
+                        state.ser.write(bytes(output_levels) + b'\xff')
+                        state.ser.reset_input_buffer()
+                    if state.debug_enabled:
+                        print("serial tx: port=%s bytes=%d" % (state.ser.port, len(output_levels) + 1))
+                except Exception as e:
+                    print("WARNING: Serial write failed (%s), retrying in 2s" % e)
+                    state.ser = None
+                    time.sleep(2)
+                    serial_port = find_serial_port()
+                    if serial_port:
+                        try:
+                            state.ser = serial.Serial(port=serial_port, baudrate=115200, timeout=0.1)
+                            print("Serial reconnected: %s" % serial_port)
+                        except serial.SerialException as re:
+                            print("WARNING: Serial reconnect failed (%s)" % re)
 
     except Exception as e:
+        import traceback
         print("Frame thread error: %s" % e)
+        traceback.print_exc()
         state.fft_error = str(e)
     finally:
         print("Frame thread stopping")
@@ -687,6 +702,7 @@ def main():
                 timeout=0.1,
             )
             print("Using serial port: %s (type: %s)" % (serial_port, "ttyUSB" if "ttyUSB" in serial_port else "hardware UART (mini-UART on Pi3 with BT)"))
+            state.ser.write(b'\xff' * 8)
         except serial.SerialException as e:
             print("WARNING: Serial port not available (%s), running without ESP32" % e)
             state.ser = None
