@@ -8,7 +8,7 @@ class EffectWipe(PiEffect):
     def __init__(self):
         super().__init__()
         self.hue = 0
-        self.speed = 5.0
+        self.speed = 1.0
         self._pos = 0.0
         self._on = True  # True = wiping on, False = wiping off
 
