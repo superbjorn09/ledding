@@ -407,7 +407,7 @@ def frame_thread(state):
             if state.ser is not None:
                 with state.serial_lock:
                     state.ser.write(bytes(output_levels) + b'\xff')
-                    state.ser.read()
+                    state.ser.reset_input_buffer()
                 if state.debug_enabled:
                     print("serial tx: port=%s bytes=%d" % (state.ser.port, len(output_levels) + 1))
 
