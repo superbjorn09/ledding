@@ -159,7 +159,7 @@ def find_serial_port():
         ports = sorted(glob.glob(pattern))
         if ports:
             return ports[0]
-    return '/dev/ttyUSB0'
+    return None
 
 
 def build_log_bins(num_bins, num_fft_bins, freq_min=20, freq_max=6000, samplerate=48000):
@@ -676,16 +676,20 @@ def main():
         print("WARNING: No monitor source found, falling back to device 0")
 
     serial_port = find_serial_port()
-    try:
-        state.ser = serial.Serial(
-            port=serial_port,
-            baudrate=115200,
-            timeout=5,
-        )
-        print("Using serial port: %s (type: %s)" % (serial_port, "ttyUSB" if "ttyUSB" in serial_port else "hardware UART (mini-UART on Pi3 with BT)"))
-    except serial.SerialException as e:
-        print("WARNING: Serial port not available (%s), running without ESP32" % e)
+    if serial_port is None:
+        print("WARNING: No serial port found (/dev/ttyUSB* and /dev/serial0 missing), running without ESP32")
         state.ser = None
+    else:
+        try:
+            state.ser = serial.Serial(
+                port=serial_port,
+                baudrate=115200,
+                timeout=5,
+            )
+            print("Using serial port: %s (type: %s)" % (serial_port, "ttyUSB" if "ttyUSB" in serial_port else "hardware UART (mini-UART on Pi3 with BT)"))
+        except serial.SerialException as e:
+            print("WARNING: Serial port not available (%s), running without ESP32" % e)
+            state.ser = None
 
     supervisor = threading.Thread(target=frame_supervisor, args=(state,), daemon=True)
     supervisor.start()
