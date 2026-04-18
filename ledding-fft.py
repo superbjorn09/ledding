@@ -408,6 +408,8 @@ def frame_thread(state):
                 with state.serial_lock:
                     state.ser.write(bytes(output_levels) + b'\xff')
                     state.ser.read()
+                if state.debug_enabled:
+                    print("serial tx: port=%s bytes=%d" % (state.ser.port, len(output_levels) + 1))
 
     except Exception as e:
         print("Frame thread error: %s" % e)
@@ -680,7 +682,7 @@ def main():
             baudrate=115200,
             timeout=5,
         )
-        print("Using serial port: %s" % serial_port)
+        print("Using serial port: %s (type: %s)" % (serial_port, "ttyUSB" if "ttyUSB" in serial_port else "hardware UART (mini-UART on Pi3 with BT)"))
     except serial.SerialException as e:
         print("WARNING: Serial port not available (%s), running without ESP32" % e)
         state.ser = None
