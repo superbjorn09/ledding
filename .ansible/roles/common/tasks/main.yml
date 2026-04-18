@@ -34,6 +34,26 @@
     enabled: yes
     daemon_reload: yes
 
+- name: Add deploy user to dialout group
+  user:
+    name: "{{ deploy_user }}"
+    groups: dialout
+    append: yes
+
+- name: Set ttyS0 group to dialout via udev rule
+  copy:
+    dest: /etc/udev/rules.d/99-ttyS0.rules
+    content: 'KERNEL=="ttyS0", GROUP="dialout", MODE="0660"'
+
+- name: Apply udev rules
+  command: udevadm trigger --subsystem-match=tty
+
+- name: Disable serial getty on ttyS0
+  systemd:
+    name: serial-getty@ttyS0.service
+    enabled: no
+    state: stopped
+
 - name: Enable UART in /boot/firmware/config.txt
   lineinfile:
     path: /boot/firmware/config.txt
